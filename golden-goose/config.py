@@ -17,6 +17,13 @@ class Config:
     # Flask configuration
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     TESTING = False
+    
+    # Stock API configuration
+    STOCK_API_KEY = os.environ.get('STOCK_API_KEY')
+    STOCK_API_PROVIDER = os.environ.get('STOCK_API_PROVIDER', 'alphavantage')
+    
+    # Scheduler configuration
+    SCHEDULER_API_ENABLED = True
 
 class DevelopmentConfig(Config):
     """Development configuration"""
