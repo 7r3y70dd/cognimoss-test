@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Users - Golden Goose{% endblock %}
+
+{% block content %}
+<h1>Users</h1>
+
+<div class="actions">
+    <a href="{{ url_for('main.create_user') }}" class="btn btn-primary">Create New User</a>
+</div>
+
+{% if users %}
+    <table class="user-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Created At</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.username }}</td>
+                <td>{{ user.email }}</td>
+                <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'N/A' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p class="no-data">No users found. Create your first user!</p>
+{% endif %}
+{% endblock %}

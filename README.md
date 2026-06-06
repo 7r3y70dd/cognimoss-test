@@ -5,6 +5,23 @@ This is a test repository for the application cognimoss.  in this repository we 
 ### hello_world.py
 A simple Python script that prints "Helo world" when executed.
 
+## Stage 2
+
+### golden-goose/
+A complete Flask application skeleton called "Golden Goose" with the following components:
+
+- **Flask Application Factory**: Scalable app structure using blueprints
+- **Database Integration**: SQLAlchemy ORM with example models (User, Post)
+- **Database Migrations**: Flask-Migrate for schema management
+- **Form Handling**: Flask-WTF with validation examples (UserForm, PostForm)
+- **Template System**: Jinja2 templates with base layout and multiple pages
+- **Static Assets**: Organized CSS and JavaScript files
+- **Configuration**: Environment-based config with .env support
+- **API Endpoints**: RESTful JSON API examples
+- **Blueprint Architecture**: Organized route structure
+
+See `golden-goose/README.md` for detailed setup and usage instructions.
+
 ---
 
 ## A Poem About Logic
