@@ -10,6 +10,9 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
+    # Relationships
+    watchlist_items = db.relationship('WatchlistItem', backref=db.backref('user', lazy=True), cascade='all, delete-orphan')
+    
     def __repr__(self):
         return f'<User {self.username}>'
     
@@ -59,6 +62,9 @@ class Stock(db.Model):
     currency = db.Column(db.String(10), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    watchlist_items = db.relationship('WatchlistItem', backref=db.backref('stock', lazy=True), cascade='all, delete-orphan')
     
     def __repr__(self):
         return f'<Stock {self.symbol}>'
@@ -173,4 +179,34 @@ class StockOption(db.Model):
             'recommendation': self.recommendation,
             'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+class WatchlistItem(db.Model):
+    """Watchlist item model for storing user's watched stocks"""
+    __tablename__ = 'watchlist_items'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    stock_id = db.Column(db.Integer, db.ForeignKey('stocks.id'), nullable=False, index=True)
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+    notes = db.Column(db.Text, nullable=True)
+    
+    # Unique constraint to prevent duplicate watchlist entries
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'stock_id', name='unique_user_stock_watchlist'),
+    )
+    
+    def __repr__(self):
+        return f'<WatchlistItem user_id={self.user_id} stock_id={self.stock_id}>'
+    
+    def to_dict(self):
+        """Convert model to dictionary"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'stock_id': self.stock_id,
+            'symbol': self.stock.symbol if self.stock else None,
+            'stock_name': self.stock.name if self.stock else None,
+            'added_at': self.added_at.isoformat() if self.added_at else None,
+            'notes': self.notes
         }
