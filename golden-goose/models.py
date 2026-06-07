@@ -114,3 +114,63 @@ class StockPrice(db.Model):
             'volume': self.volume,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+class StockOption(db.Model):
+    """Stock option prediction model for storing analysis results"""
+    __tablename__ = 'stock_options'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    stock_id = db.Column(db.Integer, db.ForeignKey('stocks.id'), nullable=False, index=True)
+    option_type = db.Column(db.String(10), nullable=False)  # 'call' or 'put'
+    strike_price = db.Column(db.Float, nullable=False)
+    expiration_date = db.Column(db.DateTime, nullable=False)
+    prediction_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    # Analysis metrics
+    current_price = db.Column(db.Float, nullable=False)
+    predicted_price = db.Column(db.Float, nullable=True)
+    volatility = db.Column(db.Float, nullable=True)
+    success_probability = db.Column(db.Float, nullable=True)  # 0-1 probability
+    confidence_score = db.Column(db.Float, nullable=True)  # 0-1 confidence
+    
+    # Technical indicators
+    rsi = db.Column(db.Float, nullable=True)  # Relative Strength Index
+    macd = db.Column(db.Float, nullable=True)  # MACD indicator
+    moving_avg_20 = db.Column(db.Float, nullable=True)
+    moving_avg_50 = db.Column(db.Float, nullable=True)
+    
+    # Recommendation
+    recommendation = db.Column(db.String(20), nullable=True)  # 'buy', 'sell', 'hold'
+    notes = db.Column(db.Text, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationship
+    stock = db.relationship('Stock', backref=db.backref('options', lazy=True, order_by='StockOption.prediction_date.desc()'))
+    
+    def __repr__(self):
+        return f'<StockOption {self.stock_id} {self.option_type} ${self.strike_price}>'
+    
+    def to_dict(self):
+        """Convert model to dictionary"""
+        return {
+            'id': self.id,
+            'stock_id': self.stock_id,
+            'symbol': self.stock.symbol if self.stock else None,
+            'option_type': self.option_type,
+            'strike_price': self.strike_price,
+            'expiration_date': self.expiration_date.isoformat() if self.expiration_date else None,
+            'prediction_date': self.prediction_date.isoformat() if self.prediction_date else None,
+            'current_price': self.current_price,
+            'predicted_price': self.predicted_price,
+            'volatility': self.volatility,
+            'success_probability': self.success_probability,
+            'confidence_score': self.confidence_score,
+            'rsi': self.rsi,
+            'macd': self.macd,
+            'moving_avg_20': self.moving_avg_20,
+            'moving_avg_50': self.moving_avg_50,
+            'recommendation': self.recommendation,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
