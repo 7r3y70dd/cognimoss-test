@@ -1,8 +1,9 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from app import db
-from models import User, Post, Stock, StockPrice
+from models import User, Post, Stock, StockPrice, StockOption
 from forms import UserForm, PostForm
 from services.stock_service import StockService
+from services.options_service import OptionsService
 from config import Config
 from datetime import datetime, timedelta
 import logging
@@ -250,4 +251,106 @@ def api_delete_stock(symbol):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error deleting stock {symbol}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# Stock Options API endpoints
+
+@main_bp.route('/options')
+def options_dashboard():
+    """Options analysis dashboard"""
+    return render_template('options_dashboard.html', title='Options Analysis')
+
+@main_bp.route('/api/options/analyze', methods=['POST'])
+def api_analyze_option():
+    """API endpoint - analyze a stock option"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Request body required'}), 400
+        
+        # Validate required fields
+        required = ['symbol', 'option_type', 'strike_price']
+        for field in required:
+            if field not in data:
+                return jsonify({'success': False, 'error': f'{field} is required'}), 400
+        
+        symbol = data['symbol'].upper()
+        option_type = data['option_type'].lower()
+        strike_price = float(data['strike_price'])
+        expiration_days = int(data.get('expiration_days', 30))
+        
+        if option_type not in ['call', 'put']:
+            return jsonify({'success': False, 'error': 'option_type must be call or put'}), 400
+        
+        # Check if stock exists
+        stock = Stock.query.filter_by(symbol=symbol).first()
+        if not stock:
+            return jsonify({'success': False, 'error': f'Stock {symbol} not found. Add it first.'}), 404
+        
+        # Perform analysis
+        options_service = OptionsService()
+        analysis = options_service.analyze_option(symbol, option_type, strike_price, expiration_days)
+        
+        if not analysis:
+            return jsonify({
+                'success': False,
+                'error': 'Unable to analyze option. Insufficient price data.'
+            }), 500
+        
+        # Save analysis to database
+        option = options_service.save_option_analysis(analysis)
+        
+        return jsonify({
+            'success': True,
+            'analysis': analysis,
+            'saved': option is not None
+        })
+        
+    except ValueError as e:
+        return jsonify({'success': False, 'error': f'Invalid input: {str(e)}'}), 400
+    except Exception as e:
+        logger.error(f"Error analyzing option: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@main_bp.route('/api/options/opportunities', methods=['GET'])
+def api_option_opportunities():
+    """API endpoint - get top option opportunities"""
+    try:
+        min_probability = request.args.get('min_probability', 0.6, type=float)
+        limit = request.args.get('limit', 10, type=int)
+        
+        options_service = OptionsService()
+        opportunities = options_service.get_top_opportunities(min_probability, limit)
+        
+        return jsonify({
+            'success': True,
+            'count': len(opportunities),
+            'opportunities': opportunities
+        })
+    except Exception as e:
+        logger.error(f"Error fetching opportunities: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@main_bp.route('/api/options/<symbol>', methods=['GET'])
+def api_stock_options(symbol):
+    """API endpoint - get all option analyses for a stock"""
+    try:
+        stock = Stock.query.filter_by(symbol=symbol.upper()).first()
+        if not stock:
+            return jsonify({'success': False, 'error': 'Stock not found'}), 404
+        
+        limit = request.args.get('limit', 50, type=int)
+        
+        options = StockOption.query.filter_by(stock_id=stock.id).order_by(
+            StockOption.prediction_date.desc()
+        ).limit(limit).all()
+        
+        return jsonify({
+            'success': True,
+            'symbol': symbol.upper(),
+            'count': len(options),
+            'options': [opt.to_dict() for opt in options]
+        })
+    except Exception as e:
+        logger.error(f"Error fetching options for {symbol}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
