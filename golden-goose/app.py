@@ -2,19 +2,33 @@ from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from config import Config
+import logging
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
+
+# Initialize scheduler (will be started after app creation)
+from scheduler import StockDataScheduler
+scheduler = StockDataScheduler()
 
 def create_app(config_class=Config):
     """Application factory pattern"""
     app = Flask(__name__)
     app.config.from_object(config_class)
     
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
     # Initialize extensions with app
     db.init_app(app)
     migrate.init_app(app, db)
+    
+    # Initialize scheduler with app
+    scheduler.init_app(app)
     
     # Register blueprints
     from routes import main_bp
@@ -25,8 +39,20 @@ def create_app(config_class=Config):
     def hello():
         return 'Hello World from Golden Goose!'
     
+    # Start scheduler if not in testing mode
+    if not app.config.get('TESTING', False):
+        with app.app_context():
+            try:
+                scheduler.start()
+            except Exception as e:
+                app.logger.error(f"Failed to start scheduler: {e}")
+    
     return app
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True)
+    try:
+        app.run(debug=True)
+    finally:
+        # Ensure scheduler is shut down on exit
+        scheduler.shutdown()
