@@ -1,5 +1,5 @@
 from flask import Flask, render_template
-from extensions import db, migrate
+from extensions import db, migratedb
 from config import Config
 import logging
 
@@ -20,7 +20,7 @@ def create_app(config_class=Config):
     
     # Initialize extensions with app
     db.init_app(app)
-    migrate.init_app(app, db)
+    migratedb.init_app(app, db)
     
     # Initialize scheduler with app
     scheduler.init_app(app)
