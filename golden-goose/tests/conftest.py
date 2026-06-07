@@ -9,7 +9,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app import create_app, db as _db
-from models import User, Post, Stock, StockPrice
+from models import User, Post, Stock, StockPrice, StockOption
 from config import TestingConfig
 
 
@@ -100,6 +100,31 @@ def sample_stock_price(db, sample_stock):
     db.session.add(price)
     db.session.commit()
     return price
+
+
+@pytest.fixture
+def sample_stock_option(db, sample_stock):
+    """Create a sample stock option for testing"""
+    option = StockOption(
+        stock_id=sample_stock.id,
+        option_type='call',
+        strike_price=160.0,
+        expiration_days=30,
+        current_price=153.0,
+        predicted_price=155.0,
+        volatility=25.5,
+        success_probability=0.72,
+        confidence_score=0.65,
+        rsi=55.0,
+        macd=0.5,
+        moving_avg_20=152.0,
+        moving_avg_50=151.0,
+        recommendation='buy',
+        notes='Sample option analysis'
+    )
+    db.session.add(option)
+    db.session.commit()
+    return option
 
 
 @pytest.fixture

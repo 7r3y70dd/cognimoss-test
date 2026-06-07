@@ -12,6 +12,7 @@ A complete Flask application framework with all the essential components for bui
 - **Static Assets**: CSS and JavaScript organization
 - **Configuration Management**: Environment-based configuration
 - **API Endpoints**: RESTful JSON API examples
+- **Stock Options Analysis**: Technical analysis and prediction service
 - **Comprehensive Test Suite**: pytest-based testing with high coverage
 
 ## Project Structure
@@ -20,7 +21,7 @@ A complete Flask application framework with all the essential components for bui
 golden-goose/
 ├── app.py                 # Application factory and initialization
 ├── config.py              # Configuration classes
-├── models.py              # Database models (User, Post, Stock, StockPrice)
+├── models.py              # Database models (User, Post, Stock, StockPrice, StockOption)
 ├── routes.py              # Blueprint with routes
 ├── forms.py               # WTForms form classes
 ├── scheduler.py           # APScheduler for background tasks
@@ -28,13 +29,15 @@ golden-goose/
 ├── .env.example          # Environment variables template
 ├── services/             # Service layer
 │   ├── __init__.py
-│   └── stock_service.py  # Stock data service
+│   ├── stock_service.py  # Stock data service
+│   └── options_service.py # Options analysis service
 ├── templates/            # Jinja2 templates
 │   ├── base.html         # Base template
 │   ├── index.html        # Home page
 │   ├── users.html        # User list
 │   ├── create_user.html  # User creation form
-│   └── about.html        # About page
+│   ├── about.html        # About page
+│   └── options_dashboard.html # Options analysis dashboard
 ├── static/               # Static files
 │   ├── css/
 │   │   └── style.css     # Main stylesheet
@@ -46,7 +49,8 @@ golden-goose/
     ├── test_models.py    # Model tests
     ├── test_routes.py    # Route tests
     ├── test_forms.py     # Form tests
-    └── test_stock_service.py  # Service tests
+    ├── test_stock_service.py  # Stock service tests
+    └── test_options_service.py # Options service tests
 ```
 
 ## Installation
@@ -134,12 +138,13 @@ The test suite is organized into the following modules:
   - `app`: Application instance for testing
   - `db`: Database instance with automatic cleanup
   - `client`: Test client for making requests
-  - `sample_user`, `sample_post`, `sample_stock`, etc.: Pre-populated test data
+  - `sample_user`, `sample_post`, `sample_stock`, `sample_stock_option`, etc.: Pre-populated test data
 
 - **test_models.py**: Tests for database models
   - User model CRUD operations and validation
   - Post model relationships and serialization
   - Stock and StockPrice model functionality
+  - StockOption model for options analysis
 
 - **test_routes.py**: Tests for application routes
   - HTML template rendering
@@ -152,10 +157,18 @@ The test suite is organized into the following modules:
   - Field validation rules
   - Error message generation
 
-- **test_stock_service.py**: Tests for service layer
+- **test_stock_service.py**: Tests for stock service layer
   - External API interaction (mocked)
   - Data transformation and storage
   - Error handling and edge cases
+
+- **test_options_service.py**: Tests for options analysis service
+  - Price history retrieval
+  - Technical indicator calculations (RSI, MACD, volatility)
+  - Price movement predictions
+  - Option analysis and success probability
+  - Database persistence of analyses
+  - Error handling for missing or invalid data
 
 ## Contributing
 
@@ -189,11 +202,12 @@ When adding a new feature, you **must** include corresponding tests:
    - Test edge cases (empty strings, whitespace, etc.)
 
 4. **Services**: If you add or modify a service:
-   - Add tests in `tests/test_stock_service.py` or create a new test file
-   - Mock external API calls
+   - Add tests in `tests/test_stock_service.py`, `tests/test_options_service.py`, or create a new test file
+   - Mock external API calls and database operations
    - Test successful operations
    - Test error handling
    - Test data transformation logic
+   - Test edge cases and boundary conditions
 
 ### Test Writing Guidelines
 
@@ -201,6 +215,7 @@ When adding a new feature, you **must** include corresponding tests:
    ```python
    def test_user_creation_with_valid_data(self, db):
    def test_api_returns_404_for_nonexistent_stock(self, client):
+   def test_calculate_rsi_oversold_condition(self):
    ```
 
 2. **Follow the Arrange-Act-Assert pattern**:
@@ -232,7 +247,7 @@ When adding a new feature, you **must** include corresponding tests:
        # Test failure case
    ```
 
-5. **Mock external dependencies**: Use `unittest.mock` for external API calls
+5. **Mock external dependencies**: Use `unittest.mock` for external API calls and services
    ```python
    @patch('services.stock_service.requests.get')
    def test_fetch_quote(self, mock_get):
@@ -244,6 +259,45 @@ When adding a new feature, you **must** include corresponding tests:
 7. **Maintain test coverage**: Aim for >80% code coverage
    ```bash
    pytest --cov=. --cov-report=term-missing
+   ```
+
+### Service Testing Best Practices
+
+When testing services like `OptionsService` and `StockService`:
+
+1. **Mock database queries**: Use fixtures to create test data instead of mocking queries
+   ```python
+   def test_analyze_option_success(self, app, db, sample_stock):
+       with app.app_context():
+           # Add test data using fixtures
+           service = OptionsService()
+           result = service.analyze_option('AAPL', 'call', 160.0)
+   ```
+
+2. **Test with realistic data**: Use pandas DataFrames and numpy arrays that match real data
+   ```python
+   def test_calculate_rsi_success(self):
+       service = OptionsService()
+       prices = pd.Series([100, 102, 101, 103, 105, ...])
+       rsi = service.calculate_rsi(prices)
+   ```
+
+3. **Test error conditions**: Verify graceful handling of missing data, invalid inputs, etc.
+   ```python
+   def test_analyze_option_invalid_symbol(self, app, db):
+       with app.app_context():
+           service = OptionsService()
+           result = service.analyze_option('INVALID', 'call', 160.0)
+           assert result is None
+   ```
+
+4. **Test boundary conditions**: Test edge cases like empty data, extreme values, etc.
+   ```python
+   def test_calculate_volatility_high_volatility(self):
+       # Test with highly volatile prices
+       
+   def test_calculate_volatility_low_volatility(self):
+       # Test with stable prices
    ```
 
 ### Modifying Existing Features
@@ -298,6 +352,12 @@ All pull requests should:
 - `GET /api/stocks/<symbol>/latest` - Get latest price
 - `POST /api/stocks/<symbol>/import` - Manually import stock data
 
+### Options Endpoints
+- `GET /options` - Options analysis dashboard (HTML)
+- `POST /api/options/analyze` - Analyze a stock option
+- `GET /api/options/top` - Get top opportunities
+- `GET /api/options/history` - Get historical analyses
+
 ## Database Models
 
 ### User
@@ -331,6 +391,25 @@ All pull requests should:
 - `low_price`: Low price
 - `close_price`: Closing price
 - `volume`: Trading volume
+- `created_at`: Timestamp
+
+### StockOption
+- `id`: Primary key
+- `stock_id`: Foreign key to Stock
+- `option_type`: 'call' or 'put'
+- `strike_price`: Option strike price
+- `expiration_days`: Days until expiration
+- `current_price`: Current stock price at analysis time
+- `predicted_price`: Predicted price movement
+- `volatility`: Historical volatility percentage
+- `success_probability`: Predicted success probability (0-1)
+- `confidence_score`: Confidence in prediction (0-1)
+- `rsi`: Relative Strength Index value
+- `macd`: MACD indicator value
+- `moving_avg_20`: 20-day moving average
+- `moving_avg_50`: 50-day moving average
+- `recommendation`: 'buy', 'sell', or 'hold'
+- `notes`: Analysis notes
 - `created_at`: Timestamp
 
 ## Configuration
