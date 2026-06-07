@@ -39,6 +39,18 @@ pytest -v                 # Verbose output
 pytest --cov=.           # With coverage report
 ```
 
+### test_results.txt
+Complete test suite execution results for the golden-goose application. This file contains the output from running the entire pytest test suite, including:
+- Test pass/fail status for all test modules
+- Coverage of models, routes, forms, and services
+- Detailed error messages for any failing tests
+- Test execution summary and statistics
+
+To regenerate this file, run:
+```bash
+cd golden-goose && python -m pytest -v --tb=short > ../test_results.txt 2>&1
+```
+
 ---
 
 ## A Poem About Logic
