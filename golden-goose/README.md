@@ -75,11 +75,23 @@ golden-goose/
    ```
 
 5. **Initialize the database**
+   
+   The application uses Flask-Migrate to manage database migrations. The local SQLite database is stored in the `instance/` directory and is not tracked by version control.
+   
+   To set up the database for the first time:
+   ```bash
+   cd golden-goose
+   flask db upgrade
+   ```
+   
+   If migrations don't exist yet, initialize them:
    ```bash
    flask db init
    flask db migrate -m "Initial migration"
    flask db upgrade
    ```
+   
+   The database file will be created at `instance/app.db`.
 
 ## Running the Application
 
@@ -92,6 +104,7 @@ python app.py
 Or using Flask CLI:
 
 ```bash
+cd golden-goose
 export FLASK_APP=app.py
 export FLASK_ENV=development
 flask run
@@ -391,37 +404,3 @@ All pull requests should:
 - `low_price`: Low price
 - `close_price`: Closing price
 - `volume`: Trading volume
-- `created_at`: Timestamp
-
-### StockOption
-- `id`: Primary key
-- `stock_id`: Foreign key to Stock
-- `option_type`: 'call' or 'put'
-- `strike_price`: Option strike price
-- `expiration_days`: Days until expiration
-- `current_price`: Current stock price at analysis time
-- `predicted_price`: Predicted price movement
-- `volatility`: Historical volatility percentage
-- `success_probability`: Predicted success probability (0-1)
-- `confidence_score`: Confidence in prediction (0-1)
-- `rsi`: Relative Strength Index value
-- `macd`: MACD indicator value
-- `moving_avg_20`: 20-day moving average
-- `moving_avg_50`: 50-day moving average
-- `recommendation`: 'buy', 'sell', or 'hold'
-- `notes`: Analysis notes
-- `created_at`: Timestamp
-
-## Configuration
-
-The application supports multiple configuration environments:
-
-- **Development**: Debug mode enabled, SQLite database
-- **Production**: Debug mode disabled, production database
-- **Testing**: In-memory SQLite database, CSRF disabled
-
-Set the environment using the `FLASK_ENV` variable or by passing the config class to `create_app()`.
-
-## License
-
-This is a test/example application for learning purposes.

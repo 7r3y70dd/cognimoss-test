@@ -10,8 +10,11 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
     
     # Database configuration
+    # Use instance/ directory for local database files
+    instance_path = os.path.join(basedir, '..', 'instance')
+    os.makedirs(instance_path, exist_ok=True)
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'sqlite:///' + os.path.join(basedir, 'app.db')
+        'sqlite:///' + os.path.join(instance_path, 'app.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Flask configuration
