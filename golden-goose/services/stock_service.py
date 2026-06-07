@@ -18,12 +18,12 @@ class StockService:
         
         Args:
             api_key: API key for the stock data provider
-            api_provider: Provider name (alphavantage, finnhub, etc.)
+            api_provider: Provider name (alphavantage or finnhub)
         """
         self.api_key = api_key
-        self.api_provider = api_provider
+        self.api_provider = api_provider.lower()
         self.base_url = self._get_base_url()
-    
+        
     def _get_base_url(self) -> str:
         """Get base URL for the API provider"""
         if self.api_provider == 'alphavantage':
@@ -38,144 +38,124 @@ class StockService:
         Fetch current quote for a stock symbol
         
         Args:
-            symbol: Stock symbol (e.g., 'AAPL', 'GOOGL')
+            symbol: Stock symbol (e.g., 'AAPL')
             
         Returns:
             Dictionary with quote data or None if error
         """
         try:
-            if self.api_provider == 'alphavantage':
-                params = {
-                    'function': 'GLOBAL_QUOTE',
-                    'symbol': symbol,
-                    'apikey': self.api_key
-                }
-                response = requests.get(self.base_url, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                
-                if 'Global Quote' in data and data['Global Quote']:
-                    quote = data['Global Quote']
-                    return {
-                        'symbol': quote.get('01. symbol'),
-                        'price': float(quote.get('05. price', 0)),
-                        'volume': int(quote.get('06. volume', 0)),
-                        'timestamp': quote.get('07. latest trading day'),
-                        'change': float(quote.get('09. change', 0)),
-                        'change_percent': quote.get('10. change percent', '0%')
-                    }
-                else:
-                    logger.warning(f"No quote data found for {symbol}")
-                    return None
-            else:
-                logger.error(f"Provider {self.api_provider} not implemented for quotes")
+            params = {
+                'function': 'GLOBAL_QUOTE',
+                'symbol': symbol,
+                'apikey': self.api_key
+            }
+            
+            response = requests.get(self.base_url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            if 'Global Quote' not in data or not data['Global Quote']:
+                logger.warning(f"No quote data found for {symbol}")
                 return None
-                
-        except requests.RequestException as e:
-            logger.error(f"Error fetching quote for {symbol}: {e}")
-            return None
-        except (KeyError, ValueError) as e:
-            logger.error(f"Error parsing quote data for {symbol}: {e}")
+            
+            quote = data['Global Quote']
+            return {
+                'symbol': quote.get('01. symbol'),
+                'price': float(quote.get('05. price', 0)),
+                'volume': int(quote.get('06. volume', 0)),
+                'timestamp': quote.get('07. latest trading day'),
+                'change': float(quote.get('09. change', 0)),
+                'change_percent': quote.get('10. change percent', '0%')
+            }
+        except Exception as e:
+            logger.error(f"Error fetching quote for {symbol}: {str(e)}")
             return None
     
     def fetch_intraday(self, symbol: str, interval: str = '5min') -> Optional[List[Dict]]:
         """
-        Fetch intraday time series data
+        Fetch intraday price data for a stock symbol
         
         Args:
             symbol: Stock symbol
             interval: Time interval (1min, 5min, 15min, 30min, 60min)
             
         Returns:
-            List of price data dictionaries or None if error
+            List of price dictionaries or None if error
         """
         try:
-            if self.api_provider == 'alphavantage':
-                params = {
-                    'function': 'TIME_SERIES_INTRADAY',
-                    'symbol': symbol,
-                    'interval': interval,
-                    'apikey': self.api_key,
-                    'outputsize': 'compact'  # Last 100 data points
-                }
-                response = requests.get(self.base_url, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                
-                time_series_key = f'Time Series ({interval})'
-                if time_series_key in data:
-                    prices = []
-                    for timestamp, values in data[time_series_key].items():
-                        prices.append({
-                            'timestamp': timestamp,
-                            'open': float(values.get('1. open', 0)),
-                            'high': float(values.get('2. high', 0)),
-                            'low': float(values.get('3. low', 0)),
-                            'close': float(values.get('4. close', 0)),
-                            'volume': int(values.get('5. volume', 0))
-                        })
-                    return prices
-                else:
-                    logger.warning(f"No intraday data found for {symbol}")
-                    return None
-            else:
-                logger.error(f"Provider {self.api_provider} not implemented for intraday")
+            params = {
+                'function': 'TIME_SERIES_INTRADAY',
+                'symbol': symbol,
+                'interval': interval,
+                'apikey': self.api_key
+            }
+            
+            response = requests.get(self.base_url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            time_series_key = f'Time Series ({interval})'
+            if time_series_key not in data:
+                logger.warning(f"No intraday data found for {symbol}")
                 return None
-                
-        except requests.RequestException as e:
-            logger.error(f"Error fetching intraday data for {symbol}: {e}")
-            return None
-        except (KeyError, ValueError) as e:
-            logger.error(f"Error parsing intraday data for {symbol}: {e}")
+            
+            prices = []
+            for timestamp, values in data[time_series_key].items():
+                prices.append({
+                    'timestamp': timestamp,
+                    'open': float(values['1. open']),
+                    'high': float(values['2. high']),
+                    'low': float(values['3. low']),
+                    'close': float(values['4. close']),
+                    'volume': int(values['5. volume'])
+                })
+            
+            return prices
+        except Exception as e:
+            logger.error(f"Error fetching intraday data for {symbol}: {str(e)}")
             return None
     
     def fetch_daily(self, symbol: str, outputsize: str = 'compact') -> Optional[List[Dict]]:
         """
-        Fetch daily time series data
+        Fetch daily price data for a stock symbol
         
         Args:
             symbol: Stock symbol
             outputsize: 'compact' (100 days) or 'full' (20+ years)
             
         Returns:
-            List of price data dictionaries or None if error
+            List of price dictionaries or None if error
         """
         try:
-            if self.api_provider == 'alphavantage':
-                params = {
-                    'function': 'TIME_SERIES_DAILY',
-                    'symbol': symbol,
-                    'apikey': self.api_key,
-                    'outputsize': outputsize
-                }
-                response = requests.get(self.base_url, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                
-                if 'Time Series (Daily)' in data:
-                    prices = []
-                    for timestamp, values in data['Time Series (Daily)'].items():
-                        prices.append({
-                            'timestamp': timestamp,
-                            'open': float(values.get('1. open', 0)),
-                            'high': float(values.get('2. high', 0)),
-                            'low': float(values.get('3. low', 0)),
-                            'close': float(values.get('4. close', 0)),
-                            'volume': int(values.get('5. volume', 0))
-                        })
-                    return prices
-                else:
-                    logger.warning(f"No daily data found for {symbol}")
-                    return None
-            else:
-                logger.error(f"Provider {self.api_provider} not implemented for daily")
+            params = {
+                'function': 'TIME_SERIES_DAILY',
+                'symbol': symbol,
+                'outputsize': outputsize,
+                'apikey': self.api_key
+            }
+            
+            response = requests.get(self.base_url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            if 'Time Series (Daily)' not in data:
+                logger.warning(f"No daily data found for {symbol}")
                 return None
-                
-        except requests.RequestException as e:
-            logger.error(f"Error fetching daily data for {symbol}: {e}")
-            return None
-        except (KeyError, ValueError) as e:
-            logger.error(f"Error parsing daily data for {symbol}: {e}")
+            
+            prices = []
+            for timestamp, values in data['Time Series (Daily)'].items():
+                prices.append({
+                    'timestamp': timestamp,
+                    'open': float(values['1. open']),
+                    'high': float(values['2. high']),
+                    'low': float(values['3. low']),
+                    'close': float(values['4. close']),
+                    'volume': int(values['5. volume'])
+                })
+            
+            return prices
+        except Exception as e:
+            logger.error(f"Error fetching daily data for {symbol}: {str(e)}")
             return None
     
     def save_stock_data(self, symbol: str, name: str = None, exchange: str = None) -> Optional[Stock]:
@@ -192,6 +172,7 @@ class StockService:
         """
         try:
             stock = Stock.query.filter_by(symbol=symbol).first()
+            
             if stock:
                 # Update existing stock
                 if name:
@@ -203,18 +184,16 @@ class StockService:
                 # Create new stock
                 stock = Stock(
                     symbol=symbol,
-                    name=name,
-                    exchange=exchange
+                    name=name or symbol,
+                    exchange=exchange or 'UNKNOWN'
                 )
                 db.session.add(stock)
             
             db.session.commit()
-            logger.info(f"Saved stock data for {symbol}")
             return stock
-            
         except Exception as e:
+            logger.error(f"Error saving stock data for {symbol}: {str(e)}")
             db.session.rollback()
-            logger.error(f"Error saving stock data for {symbol}: {e}")
             return None
     
     def save_price_data(self, symbol: str, prices: List[Dict]) -> int:
@@ -237,14 +216,10 @@ class StockService:
             saved_count = 0
             for price_data in prices:
                 # Parse timestamp
-                timestamp_str = price_data.get('timestamp')
-                if isinstance(timestamp_str, str):
-                    try:
-                        timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                    except ValueError:
-                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                if isinstance(price_data['timestamp'], str):
+                    timestamp = datetime.strptime(price_data['timestamp'], '%Y-%m-%d')
                 else:
-                    timestamp = timestamp_str
+                    timestamp = price_data['timestamp']
                 
                 # Check if price already exists
                 existing = StockPrice.query.filter_by(
@@ -252,31 +227,32 @@ class StockService:
                     timestamp=timestamp
                 ).first()
                 
-                if not existing:
-                    price = StockPrice(
-                        stock_id=stock.id,
-                        timestamp=timestamp,
-                        open_price=price_data.get('open'),
-                        high_price=price_data.get('high'),
-                        low_price=price_data.get('low'),
-                        close_price=price_data.get('close'),
-                        volume=price_data.get('volume')
-                    )
-                    db.session.add(price)
-                    saved_count += 1
+                if existing:
+                    continue
+                
+                # Create new price record
+                price = StockPrice(
+                    stock_id=stock.id,
+                    timestamp=timestamp,
+                    open_price=price_data.get('open'),
+                    high_price=price_data.get('high'),
+                    low_price=price_data.get('low'),
+                    close_price=price_data.get('close', price_data.get('price')),
+                    volume=price_data.get('volume')
+                )
+                db.session.add(price)
+                saved_count += 1
             
             db.session.commit()
-            logger.info(f"Saved {saved_count} price records for {symbol}")
             return saved_count
-            
         except Exception as e:
+            logger.error(f"Error saving price data for {symbol}: {str(e)}")
             db.session.rollback()
-            logger.error(f"Error saving price data for {symbol}: {e}")
             return 0
     
-    def import_stock_data(self, symbol: str, data_type: str = 'daily') -> bool:
+    def import_stock_data(self, symbol: str, data_type: str = 'quote') -> bool:
         """
-        Import stock data from external API and save to database
+        Import stock data from API and save to database
         
         Args:
             symbol: Stock symbol
@@ -291,16 +267,11 @@ class StockService:
             if not stock:
                 return False
             
-            # Fetch and save price data
+            # Fetch and save data based on type
             if data_type == 'quote':
                 quote = self.fetch_quote(symbol)
                 if quote:
-                    prices = [{
-                        'timestamp': quote['timestamp'],
-                        'close': quote['price'],
-                        'volume': quote['volume']
-                    }]
-                    self.save_price_data(symbol, prices)
+                    self.save_price_data(symbol, [quote])
                     return True
             elif data_type == 'intraday':
                 prices = self.fetch_intraday(symbol)
@@ -314,7 +285,6 @@ class StockService:
                     return True
             
             return False
-            
         except Exception as e:
-            logger.error(f"Error importing stock data for {symbol}: {e}")
+            logger.error(f"Error importing {data_type} data for {symbol}: {str(e)}")
             return False
