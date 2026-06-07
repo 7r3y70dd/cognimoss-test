@@ -8,6 +8,41 @@ version = "0.1.0"
 description = "A Flask application for stock analysis and options trading"
 requires-python = ">=3.9"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+minversion = "7.0"
+
+[tool.coverage.run]
+source = [".", "services"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "conftest.py",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+precision = 2
+show_missing = true
+
 [tool.black]
 line-length = 100
 target-version = ['py39', 'py310', 'py311']
