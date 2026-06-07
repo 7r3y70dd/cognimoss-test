@@ -26,18 +26,28 @@ A complete Flask application skeleton called "Golden Goose" with the following c
   - Route tests (HTML and API endpoints)
   - Form validation tests
   - Service layer tests with mocked external APIs
+  - Scheduler tests with mocked background jobs
   - Test fixtures for common scenarios
   - Code coverage reporting
 
 See `golden-goose/README.md` for detailed setup, usage instructions, and contribution guidelines including how to write and maintain tests.
 
-**Running Tests:**
+**Running Tests Locally:**
 ```bash
 cd golden-goose
 pytest                    # Run all tests
 pytest -v                 # Verbose output
 pytest --cov=.           # With coverage report
 ```
+
+**Continuous Integration:**
+This repository uses GitHub Actions to automatically run the test suite on all pull requests and pushes to main/develop branches. The CI workflow:
+- Tests against Python 3.9, 3.10, and 3.11
+- Installs dependencies from `requirements.txt`
+- Runs pytest with coverage reporting
+- Blocks merging if tests fail
+
+See `.github/workflows/tests.yml` for the complete CI configuration.
 
 ### test_results.txt
 Complete test suite execution results for the golden-goose application. This file contains the output from running the entire pytest test suite, including:
