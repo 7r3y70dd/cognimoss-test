@@ -122,6 +122,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+instance/*.db
+
 # IDE
 .vscode/
 .idea/
@@ -129,8 +135,3 @@ dmypy.json
 *.swo
 *~
 .DS_Store
-
-# Local database files
-instance/*.db
-instance/*.sqlite
-instance/*.sqlite3
