@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
-from app import db
+from extensions import db
 from models import User, Post, Stock, StockPrice, StockOption
 from forms import UserForm, PostForm
 from services.stock_service import StockService
@@ -329,28 +329,4 @@ def api_option_opportunities():
         })
     except Exception as e:
         logger.error(f"Error fetching opportunities: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@main_bp.route('/api/options/<symbol>', methods=['GET'])
-def api_stock_options(symbol):
-    """API endpoint - get all option analyses for a stock"""
-    try:
-        stock = Stock.query.filter_by(symbol=symbol.upper()).first()
-        if not stock:
-            return jsonify({'success': False, 'error': 'Stock not found'}), 404
-        
-        limit = request.args.get('limit', 50, type=int)
-        
-        options = StockOption.query.filter_by(stock_id=stock.id).order_by(
-            StockOption.prediction_date.desc()
-        ).limit(limit).all()
-        
-        return jsonify({
-            'success': True,
-            'symbol': symbol.upper(),
-            'count': len(options),
-            'options': [opt.to_dict() for opt in options]
-        })
-    except Exception as e:
-        logger.error(f"Error fetching options for {symbol}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

@@ -4,8 +4,6 @@ import requests
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from app import db
-from models import Stock, StockPrice
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +156,7 @@ class StockService:
             logger.error(f"Error fetching daily data for {symbol}: {str(e)}")
             return None
     
-    def save_stock_data(self, symbol: str, name: str = None, exchange: str = None) -> Optional[Stock]:
+    def save_stock_data(self, symbol: str, name: str = None, exchange: str = None) -> Optional[object]:
         """
         Save or update stock information in database
         
@@ -171,6 +169,10 @@ class StockService:
             Stock object or None if error
         """
         try:
+            # Import here to avoid circular imports
+            from extensions import db
+            from models import Stock
+            
             stock = Stock.query.filter_by(symbol=symbol).first()
             
             if stock:
@@ -193,6 +195,8 @@ class StockService:
             return stock
         except Exception as e:
             logger.error(f"Error saving stock data for {symbol}: {str(e)}")
+            # Import here to avoid circular imports
+            from extensions import db
             db.session.rollback()
             return None
     
@@ -208,6 +212,10 @@ class StockService:
             Number of prices saved
         """
         try:
+            # Import here to avoid circular imports
+            from extensions import db
+            from models import Stock, StockPrice
+            
             stock = Stock.query.filter_by(symbol=symbol).first()
             if not stock:
                 logger.error(f"Stock {symbol} not found in database")
@@ -247,6 +255,8 @@ class StockService:
             return saved_count
         except Exception as e:
             logger.error(f"Error saving price data for {symbol}: {str(e)}")
+            # Import here to avoid circular imports
+            from extensions import db
             db.session.rollback()
             return 0
     

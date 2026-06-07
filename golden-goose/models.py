@@ -1,5 +1,5 @@
 from datetime import datetime
-from app import db
+from extensions import db
 
 class User(db.Model):
     """Example User model - Hello World style"""
