@@ -19,8 +19,21 @@ A complete Flask application skeleton called "Golden Goose" with the following c
 - **Configuration**: Environment-based config with .env support
 - **API Endpoints**: RESTful JSON API examples
 - **Blueprint Architecture**: Organized route structure
+- **Test Suite**: Comprehensive pytest-based tests for models, routes, forms, and services
 
 See `golden-goose/README.md` for detailed setup and usage instructions.
+
+### test_results.txt
+Complete test suite execution results for the golden-goose application. This file contains the output from running the entire pytest test suite, including:
+- Test pass/fail status for all test modules
+- Coverage of models, routes, forms, and services
+- Detailed error messages for any failing tests
+- Test execution summary and statistics
+
+To regenerate this file, run:
+```bash
+cd golden-goose && python -m pytest -v --tb=short > ../test_results.txt 2>&1
+```
 
 ---
 
