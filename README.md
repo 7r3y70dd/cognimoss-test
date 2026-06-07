@@ -29,6 +29,7 @@ A complete Flask application skeleton called "Golden Goose" with the following c
   - Scheduler tests with mocked background jobs
   - Test fixtures for common scenarios
   - Code coverage reporting
+- **Code Formatting and Linting**: Black and Ruff for consistent code style
 
 See `golden-goose/README.md` for detailed setup, usage instructions, and contribution guidelines including how to write and maintain tests.
 
@@ -40,12 +41,23 @@ pytest -v                 # Verbose output
 pytest --cov=.           # With coverage report
 ```
 
+**Code Formatting and Linting:**
+```bash
+cd golden-goose
+black .                   # Format code with Black
+ruff check .              # Check code with Ruff
+ruff check . --fix        # Auto-fix Ruff issues
+```
+
+Configuration for Black and Ruff is defined in `pyproject.toml` at the repository root.
+
 **Continuous Integration:**
-This repository uses GitHub Actions to automatically run the test suite on all pull requests and pushes to main/develop branches. The CI workflow:
+This repository uses GitHub Actions to automatically run the test suite and code quality checks on all pull requests and pushes to main/develop branches. The CI workflow:
 - Tests against Python 3.9, 3.10, and 3.11
 - Installs dependencies from `requirements.txt`
 - Runs pytest with coverage reporting
-- Blocks merging if tests fail
+- Runs Ruff linting checks
+- Blocks merging if tests or linting checks fail
 
 See `.github/workflows/tests.yml` for the complete CI configuration.
 
