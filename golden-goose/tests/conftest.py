@@ -9,7 +9,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app import create_app, db as _db
-from models import User, Post, Stock, StockPrice, StockOption
+from models import User, Post, Stock, StockPrice, StockOption, WatchlistItem
 from config import TestingConfig
 
 
@@ -109,7 +109,7 @@ def sample_stock_option(db, sample_stock):
         stock_id=sample_stock.id,
         option_type='call',
         strike_price=160.0,
-        expiration_days=30,
+        expiration_date=datetime(2024, 2, 1),
         current_price=153.0,
         predicted_price=155.0,
         volatility=25.5,
@@ -125,6 +125,19 @@ def sample_stock_option(db, sample_stock):
     db.session.add(option)
     db.session.commit()
     return option
+
+
+@pytest.fixture
+def sample_watchlist_item(db, sample_user, sample_stock):
+    """Create a sample watchlist item for testing"""
+    watchlist_item = WatchlistItem(
+        user_id=sample_user.id,
+        stock_id=sample_stock.id,
+        notes='Monitoring this stock'
+    )
+    db.session.add(watchlist_item)
+    db.session.commit()
+    return watchlist_item
 
 
 @pytest.fixture

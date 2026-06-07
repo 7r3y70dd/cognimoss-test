@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from extensions import db
-from models import User, Post, Stock, StockPrice, StockOption
+from models import User, Post, Stock, StockPrice, StockOption, WatchlistItem
 from forms import UserForm, PostForm
 from services.stock_service import StockService
 from services.options_service import OptionsService
@@ -251,6 +251,89 @@ def api_delete_stock(symbol):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error deleting stock {symbol}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# Watchlist API endpoints
+
+@main_bp.route('/api/watchlist/<int:user_id>', methods=['GET'])
+def api_get_watchlist(user_id):
+    """API endpoint - get user's watchlist"""
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        
+        watchlist_items = WatchlistItem.query.filter_by(user_id=user_id).all()
+        
+        return jsonify({
+            'success': True,
+            'user_id': user_id,
+            'count': len(watchlist_items),
+            'watchlist': [item.to_dict() for item in watchlist_items]
+        })
+    except Exception as e:
+        logger.error(f"Error fetching watchlist for user {user_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@main_bp.route('/api/watchlist/<int:user_id>', methods=['POST'])
+def api_add_to_watchlist(user_id):
+    """API endpoint - add stock to user's watchlist"""
+    try:
+        data = request.get_json()
+        if not data or 'symbol' not in data:
+            return jsonify({'success': False, 'error': 'Symbol is required'}), 400
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        
+        stock = Stock.query.filter_by(symbol=data['symbol'].upper()).first()
+        if not stock:
+            return jsonify({'success': False, 'error': 'Stock not found'}), 404
+        
+        # Check if already in watchlist
+        existing = WatchlistItem.query.filter_by(user_id=user_id, stock_id=stock.id).first()
+        if existing:
+            return jsonify({'success': False, 'error': 'Stock already in watchlist'}), 409
+        
+        # Add to watchlist
+        watchlist_item = WatchlistItem(
+            user_id=user_id,
+            stock_id=stock.id,
+            notes=data.get('notes')
+        )
+        db.session.add(watchlist_item)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Added {stock.symbol} to watchlist',
+            'watchlist_item': watchlist_item.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error adding to watchlist for user {user_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@main_bp.route('/api/watchlist/<int:user_id>/<int:stock_id>', methods=['DELETE'])
+def api_remove_from_watchlist(user_id, stock_id):
+    """API endpoint - remove stock from user's watchlist"""
+    try:
+        watchlist_item = WatchlistItem.query.filter_by(user_id=user_id, stock_id=stock_id).first()
+        if not watchlist_item:
+            return jsonify({'success': False, 'error': 'Watchlist item not found'}), 404
+        
+        stock_symbol = watchlist_item.stock.symbol
+        db.session.delete(watchlist_item)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Removed {stock_symbol} from watchlist'
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error removing from watchlist for user {user_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # Stock Options API endpoints
