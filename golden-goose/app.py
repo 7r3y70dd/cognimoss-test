@@ -1,12 +1,7 @@
 from flask import Flask, render_template
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
+from extensions import db, migrate
 from config import Config
 import logging
-
-# Initialize extensions
-db = SQLAlchemy()
-migrate = Migrate()
 
 # Initialize scheduler (will be started after app creation)
 from scheduler import StockDataScheduler
