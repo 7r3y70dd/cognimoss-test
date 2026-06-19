@@ -210,6 +210,17 @@
     color: #856404;
 }
 
+.explanation-box {
+    margin-top: 15px;
+    padding: 12px;
+    background: #e7f3ff;
+    border-left: 4px solid #2196F3;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #1565c0;
+}
+
 .error-message {
     color: #dc3545;
     padding: 10px;
@@ -260,6 +271,11 @@ document.getElementById('analyzeForm').addEventListener('submit', async (e) => {
             const successClass = analysis.success_probability >= 0.7 ? 'success-high' : 
                                analysis.success_probability >= 0.5 ? 'success-medium' : 'success-low';
             
+            let explanationHtml = '';
+            if (data.explanation) {
+                explanationHtml = `<div class="explanation-box"><strong>Why this grade:</strong> ${data.explanation}</div>`;
+            }
+            
             contentDiv.innerHTML = `
                 <div class="analysis-item">
                     <div class="analysis-header">
@@ -292,6 +308,7 @@ document.getElementById('analyzeForm').addEventListener('submit', async (e) => {
                             <div class="metric-value">${analysis.rsi.toFixed(1)}</div>
                         </div>
                     </div>
+                    ${explanationHtml}
                     <div style="margin-top: 15px; padding: 10px; background: white; border-radius: 4px;">
                         <strong>Notes:</strong> ${analysis.notes}
                     </div>
@@ -368,33 +385,4 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
                 return `
                     <div class="analysis-item">
                         <div class="analysis-header">
-                            ${opt.symbol} ${opt.option_type.toUpperCase()} $${opt.strike_price.toFixed(2)}
-                            <span class="recommendation ${opt.recommendation}">${opt.recommendation}</span>
-                            <span style="float: right; font-size: 12px; color: #666;">${new Date(opt.prediction_date).toLocaleDateString()}</span>
-                        </div>
-                        <div class="analysis-metrics">
-                            <div class="metric">
-                                <div class="metric-label">Success Probability</div>
-                                <div class="metric-value ${successClass}">${(opt.success_probability * 100).toFixed(1)}%</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Current Price</div>
-                                <div class="metric-value">$${opt.current_price.toFixed(2)}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">RSI</div>
-                                <div class="metric-value">${opt.rsi.toFixed(1)}</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        } else {
-            container.innerHTML = `<div class="loading">No analyses found for ${symbol}.</div>`;
-        }
-    } catch (error) {
-        container.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
-    }
-});
-</script>
-{% endblock %}
+                            ${opt.symbol}

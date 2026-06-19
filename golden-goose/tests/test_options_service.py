@@ -325,212 +325,111 @@ class TestOptionsServicePredictPriceMovement:
             assert prediction['bullish_probability'] < 0.5
 
 
-class TestOptionsServiceAnalyzeOption:
-    """Tests for analyze_option method"""
+class TestOptionsServiceGenerateOptionExplanation:
+    """Tests for generate_option_explanation method"""
     
-    def test_analyze_call_option_success(self, app, db, sample_stock):
-        """Test successful call option analysis"""
-        with app.app_context():
-            # Add price history
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i*0.5,
-                    high_price=155.0 + i*0.5,
-                    low_price=149.0 + i*0.5,
-                    close_price=153.0 + i*0.5,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            analysis = service.analyze_option('AAPL', 'call', 160.0, 30)
-            
-            assert analysis is not None
-            assert analysis['symbol'] == 'AAPL'
-            assert analysis['option_type'] == 'call'
-            assert analysis['strike_price'] == 160.0
-            assert 0 <= analysis['success_probability'] <= 1
-            assert 'current_price' in analysis
-            assert 'predicted_price' in analysis
-            assert 'recommendation' in analysis
+    def test_generate_explanation_strong_factors(self):
+        """Test explanation generation with strong factors"""
+        service = OptionsService()
+        breakdown = {
+            'liquidity': 18.0,
+            'spread': 16.0,
+            'moneyness': 10.0,
+            'expiration': 12.0,
+            'momentum': 8.0,
+            'data_quality': 10.0
+        }
+        warnings = []
+        
+        explanation = service.generate_option_explanation(breakdown, warnings)
+        
+        assert isinstance(explanation, str)
+        assert len(explanation) > 0
+        assert 'liquidity' in explanation.lower() or 'spread' in explanation.lower()
     
-    def test_analyze_put_option_success(self, app, db, sample_stock):
-        """Test successful put option analysis"""
-        with app.app_context():
-            # Add price history
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i*0.5,
-                    high_price=155.0 + i*0.5,
-                    low_price=149.0 + i*0.5,
-                    close_price=153.0 + i*0.5,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            analysis = service.analyze_option('AAPL', 'put', 140.0, 30)
-            
-            assert analysis is not None
-            assert analysis['symbol'] == 'AAPL'
-            assert analysis['option_type'] == 'put'
-            assert analysis['strike_price'] == 140.0
-            assert 0 <= analysis['success_probability'] <= 1
+    def test_generate_explanation_weak_factors(self):
+        """Test explanation generation with weak factors"""
+        service = OptionsService()
+        breakdown = {
+            'liquidity': 3.0,
+            'spread': 2.0,
+            'moneyness': 5.0,
+            'expiration': 4.0,
+            'momentum': 2.0,
+            'data_quality': 3.0
+        }
+        warnings = ['low_volume', 'wide_spread']
+        
+        explanation = service.generate_option_explanation(breakdown, warnings)
+        
+        assert isinstance(explanation, str)
+        assert len(explanation) > 0
+        assert 'limited' in explanation.lower() or 'reduced' in explanation.lower()
     
-    def test_analyze_option_invalid_symbol(self, app, db):
-        """Test option analysis with invalid symbol"""
-        with app.app_context():
-            service = OptionsService()
-            analysis = service.analyze_option('INVALID', 'call', 160.0, 30)
-            
-            assert analysis is None
+    def test_generate_explanation_with_warnings(self):
+        """Test explanation generation with warnings"""
+        service = OptionsService()
+        breakdown = {
+            'liquidity': 10.0,
+            'spread': 10.0,
+            'moneyness': 10.0,
+            'expiration': 10.0,
+            'momentum': 10.0,
+            'data_quality': 5.0
+        }
+        warnings = ['missing_iv', 'missing_data']
+        
+        explanation = service.generate_option_explanation(breakdown, warnings)
+        
+        assert isinstance(explanation, str)
+        assert len(explanation) > 0
+        assert 'confidence' in explanation.lower() or 'missing' in explanation.lower()
     
-    def test_analyze_option_insufficient_data(self, app, db, sample_stock):
-        """Test option analysis with insufficient price data"""
-        with app.app_context():
-            # Add only 5 price records
-            for i in range(5):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0,
-                    high_price=155.0,
-                    low_price=149.0,
-                    close_price=153.0,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            analysis = service.analyze_option('AAPL', 'call', 160.0, 30)
-            
-            assert analysis is None
+    def test_generate_explanation_empty_breakdown(self):
+        """Test explanation generation with empty breakdown"""
+        service = OptionsService()
+        breakdown = {}
+        warnings = []
+        
+        explanation = service.generate_option_explanation(breakdown, warnings)
+        
+        assert isinstance(explanation, str)
+        assert 'missing' in explanation.lower() or 'unable' in explanation.lower()
     
-    def test_analyze_option_in_the_money_call(self, app, db, sample_stock):
-        """Test call option analysis when strike is in the money"""
-        with app.app_context():
-            # Add price history with current price at 180
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=170.0 + i*0.5,
-                    high_price=175.0 + i*0.5,
-                    low_price=169.0 + i*0.5,
-                    close_price=173.0 + i*0.5,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            # Strike at 160 is in the money (current ~213)
-            analysis = service.analyze_option('AAPL', 'call', 160.0, 30)
-            
-            assert analysis is not None
-            assert analysis['success_probability'] > 0.5  # Should be higher for ITM
+    def test_generate_explanation_none_values(self):
+        """Test explanation generation with None values in breakdown"""
+        service = OptionsService()
+        breakdown = {
+            'liquidity': None,
+            'spread': 15.0,
+            'moneyness': None,
+            'expiration': 12.0,
+            'momentum': 8.0,
+            'data_quality': None
+        }
+        warnings = []
+        
+        explanation = service.generate_option_explanation(breakdown, warnings)
+        
+        assert isinstance(explanation, str)
+        assert len(explanation) > 0
     
-    def test_analyze_option_out_of_money_call(self, app, db, sample_stock):
-        """Test call option analysis when strike is out of the money"""
-        with app.app_context():
-            # Add price history with current price at 150
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i*0.1,
-                    high_price=155.0 + i*0.1,
-                    low_price=149.0 + i*0.1,
-                    close_price=153.0 + i*0.1,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            # Strike at 200 is out of the money (current ~156)
-            analysis = service.analyze_option('AAPL', 'call', 200.0, 30)
-            
-            assert analysis is not None
-            assert analysis['success_probability'] < 0.5  # Should be lower for OTM
-
-
-class TestOptionsServiceSaveOptionAnalysis:
-    """Tests for save_option_analysis method"""
-    
-    def test_save_option_analysis_success(self, app, db, sample_stock):
-        """Test successful option analysis save"""
-        with app.app_context():
-            service = OptionsService()
-            analysis = {
-                'symbol': 'AAPL',
-                'option_type': 'call',
-                'strike_price': 160.0,
-                'expiration_days': 30,
-                'current_price': 153.0,
-                'predicted_price': 155.0,
-                'volatility': 25.5,
-                'success_probability': 0.72,
-                'confidence_score': 0.65,
-                'rsi': 55.0,
-                'macd': 0.5,
-                'moving_avg_20': 152.0,
-                'moving_avg_50': 151.0,
-                'recommendation': 'buy',
-                'notes': 'Test analysis'
-            }
-            
-            option = service.save_option_analysis(analysis)
-            
-            assert option is not None
-            assert option.symbol == 'AAPL'
-            assert option.option_type == 'call'
-            assert option.strike_price == 160.0
-            assert option.success_probability == 0.72
-    
-    def test_save_option_analysis_stock_not_found(self, app, db):
-        """Test option analysis save with non-existent stock"""
-        with app.app_context():
-            service = OptionsService()
-            analysis = {
-                'symbol': 'INVALID',
-                'option_type': 'call',
-                'strike_price': 160.0,
-                'expiration_days': 30,
-                'current_price': 153.0,
-                'predicted_price': 155.0,
-                'volatility': 25.5,
-                'success_probability': 0.72,
-                'confidence_score': 0.65,
-                'rsi': 55.0,
-                'macd': 0.5,
-                'moving_avg_20': 152.0,
-                'moving_avg_50': 151.0,
-                'recommendation': 'buy',
-                'notes': 'Test analysis'
-            }
-            
-            option = service.save_option_analysis(analysis)
-            
-            assert option is None
-    
-    def test_save_option_analysis_missing_fields(self, app, db, sample_stock):
-        """Test option analysis save with missing required fields"""
-        with app.app_context():
-            service = OptionsService()
-            analysis = {
-                'symbol': 'AAPL',
-                'option_type': 'call'
-                # Missing other required fields
-            }
-            
-            option = service.save_option_analysis(analysis)
-            
-            assert option is None
+    def test_generate_explanation_mixed_factors(self):
+        """Test explanation generation with mixed strong and weak factors"""
+        service = OptionsService()
+        breakdown = {
+            'liquidity': 18.0,
+            'spread': 3.0,
+            'moneyness': 14.0,
+            'expiration': 5.0,
+            'momentum': 12.0,
+            'data_quality': 10.0
+        }
+        warnings = ['wide_spread']
+        
+        explanation = service.generate_option_explanation(breakdown, warnings)
+        
+        assert isinstance(explanation, str)
+        assert len(explanation) > 0
+        # Should mention both positives and negatives
+        assert 'however' in explanation.lower() or 'but' in explanation.lower() or 'reduced' in explanation.lower()

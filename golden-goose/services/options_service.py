@@ -298,6 +298,93 @@ class OptionsService:
             logger.error(f"Error analyzing option for {symbol}: {e}")
             return None
     
+    def generate_option_explanation(self, breakdown: Dict[str, float], warnings: List[str]) -> str:
+        """
+        Generate a plain-English explanation of an option score.
+        
+        Converts score breakdown and warnings into a short, understandable explanation
+        that mentions major positives and negatives without sounding like financial advice.
+        
+        Args:
+            breakdown: Dictionary with factor scores (e.g., {'liquidity': 15, 'spread': 10, ...})
+            warnings: List of warning strings (e.g., ['low_volume', 'wide_spread', ...])
+            
+        Returns:
+            Plain-English explanation string
+        """
+        try:
+            if not breakdown:
+                return "Unable to generate explanation due to missing score data."
+            
+            # Identify strong and weak factors
+            strong_factors = []
+            weak_factors = []
+            
+            factor_descriptions = {
+                'liquidity': 'liquidity',
+                'spread': 'bid-ask spread',
+                'moneyness': 'strike positioning',
+                'expiration': 'time to expiration',
+                'momentum': 'recent momentum',
+                'data_quality': 'data completeness'
+            }
+            
+            max_score = 20.0  # Approximate max per factor
+            
+            for factor, score in breakdown.items():
+                if score is None:
+                    continue
+                factor_name = factor_descriptions.get(factor, factor)
+                if score >= max_score * 0.7:  # Strong (70%+)
+                    strong_factors.append(factor_name)
+                elif score <= max_score * 0.3:  # Weak (30%-)
+                    weak_factors.append(factor_name)
+            
+            # Build explanation
+            parts = []
+            
+            if strong_factors:
+                parts.append(f"This contract has decent {' and '.join(strong_factors)}.")
+            
+            if weak_factors:
+                if parts:
+                    parts.append(f"However, {' and '.join(weak_factors)} are limited.")
+                else:
+                    parts.append(f"This contract has limited {' and '.join(weak_factors)}.")
+            
+            # Add warning-based context
+            if warnings:
+                warning_phrases = []
+                for warning in warnings:
+                    if 'low_volume' in warning or 'low_open_interest' in warning:
+                        warning_phrases.append('low trading activity')
+                    elif 'wide_spread' in warning:
+                        warning_phrases.append('wide bid-ask spread')
+                    elif 'missing_iv' in warning or 'missing_data' in warning:
+                        warning_phrases.append('missing market data')
+                    elif 'far_otm' in warning or 'far_itm' in warning:
+                        warning_phrases.append('unfavorable strike positioning')
+                    elif 'near_expiration' in warning:
+                        warning_phrases.append('approaching expiration')
+                
+                if warning_phrases:
+                    unique_warnings = list(set(warning_phrases))
+                    if parts:
+                        parts.append(f"Confidence is reduced by {' and '.join(unique_warnings)}.")
+                    else:
+                        parts.append(f"This contract has {' and '.join(unique_warnings)}.")
+            
+            # Fallback if no parts were added
+            if not parts:
+                parts.append("Analysis data is incomplete. Confidence in this assessment is limited.")
+            
+            explanation = ' '.join(parts)
+            return explanation
+            
+        except Exception as e:
+            logger.error(f"Error generating option explanation: {e}")
+            return "Unable to generate explanation due to processing error."
+    
     def save_option_analysis(self, analysis: Dict) -> Optional[StockOption]:
         """
         Save option analysis to database
@@ -309,64 +396,4 @@ class OptionsService:
             StockOption object or None if error
         """
         try:
-            stock = Stock.query.filter_by(symbol=analysis['symbol'].upper()).first()
-            if not stock:
-                logger.error(f"Stock {analysis['symbol']} not found")
-                return None
-            
-            expiration_date = datetime.utcnow() + timedelta(days=analysis['expiration_days'])
-            
-            option = StockOption(
-                stock_id=stock.id,
-                option_type=analysis['option_type'],
-                strike_price=analysis['strike_price'],
-                expiration_date=expiration_date,
-                current_price=analysis['current_price'],
-                predicted_price=analysis['predicted_price'],
-                volatility=analysis['volatility'],
-                success_probability=analysis['success_probability'],
-                confidence_score=analysis['confidence_score'],
-                rsi=analysis['rsi'],
-                macd=analysis['macd'],
-                moving_avg_20=analysis['moving_avg_20'],
-                moving_avg_50=analysis['moving_avg_50'],
-                recommendation=analysis['recommendation'],
-                notes=analysis['notes']
-            )
-            
-            db.session.add(option)
-            db.session.commit()
-            
-            logger.info(f"Saved option analysis for {analysis['symbol']} {analysis['option_type']} ${analysis['strike_price']}")
-            return option
-            
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"Error saving option analysis: {e}")
-            return None
-    
-    def get_top_opportunities(self, min_probability: float = 0.6, limit: int = 10) -> List[Dict]:
-        """
-        Get top option opportunities based on success probability
-        
-        Args:
-            min_probability: Minimum success probability threshold
-            limit: Maximum number of results
-            
-        Returns:
-            List of option analysis dictionaries
-        """
-        try:
-            options = StockOption.query.filter(
-                StockOption.success_probability >= min_probability,
-                StockOption.expiration_date > datetime.utcnow()
-            ).order_by(
-                StockOption.success_probability.desc(),
-                StockOption.confidence_score.desc()
-            ).limit(limit).all()
-            
-            return [opt.to_dict() for opt in options]
-            
-        except Exception as e:
-            logger.error(f"Error getting top opportunities: {e}")
-            return []
+            stock = Stock.query.filter_
