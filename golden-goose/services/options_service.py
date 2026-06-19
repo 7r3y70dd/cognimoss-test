@@ -1,372 +1,435 @@
-"""Stock options analysis and prediction service"""
+"""Options service layer for options chain analysis and scoring."""
 
-import logging
-import numpy as np
-import pandas as pd
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-from app import db
-from models import Stock, StockPrice, StockOption
+from typing import Optional, Dict, List, Any
+from dataclasses import dataclass, field
 
-logger = logging.getLogger(__name__)
 
-class OptionsService:
-    """Service for analyzing stocks and predicting option trade success"""
+@dataclass
+class OptionSignalScore:
+    """Structured output for an option contract signal score."""
+    symbol: str
+    strategy: str  # e.g., "call_candidate", "put_candidate"
+    score: float  # 0-100
+    grade: str  # "avoid", "watchlist", "interesting", "high_risk"
+    breakdown: Dict[str, float] = field(default_factory=dict)  # factor -> points
+    warnings: List[str] = field(default_factory=list)  # e.g., "wide_spread", "low_open_interest"
+    explanation: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)  # bid, ask, strike, expiration, etc.
+
+
+class OptionsSignalService:
+    """Service for scoring and ranking option contracts with explainable factors.
     
-    def __init__(self):
-        """Initialize options service"""
-        pass
+    This service produces structured, explainable signals for options contracts
+    based on liquidity, spread, moneyness, volatility, and other factors.
+    Output is suitable for UI display, backtesting, or prediction pipelines.
     
-    def get_price_history(self, symbol: str, days: int = 60) -> Optional[pd.DataFrame]:
-        """
-        Get price history for a stock as pandas DataFrame
+    NOTE: This service does NOT provide financial advice or predict future prices.
+    It surfaces structured, explainable candidates for further analysis.
+    """
+
+    # Scoring constants (heuristic thresholds)
+    MAX_SCORE = 100.0
+    LIQUIDITY_MAX_POINTS = 20.0
+    SPREAD_MAX_POINTS = 15.0
+    MONEYNESS_MAX_POINTS = 15.0
+    EXPIRATION_MAX_POINTS = 15.0
+    MOMENTUM_MAX_POINTS = 15.0
+    DATA_QUALITY_MAX_POINTS = 20.0
+
+    def score_option_contract(
+        self,
+        symbol: str,
+        contract_type: str,
+        strike: Optional[float] = None,
+        expiration: Optional[str] = None,
+        bid: Optional[float] = None,
+        ask: Optional[float] = None,
+        last: Optional[float] = None,
+        volume: Optional[int] = None,
+        open_interest: Optional[int] = None,
+        implied_volatility: Optional[float] = None,
+        underlying_price: Optional[float] = None,
+        days_to_expiration: Optional[int] = None,
+        recent_momentum: Optional[float] = None,
+    ) -> OptionSignalScore:
+        """Score an option contract using explainable factors.
         
         Args:
-            symbol: Stock symbol
-            days: Number of days of history to retrieve
-            
-        Returns:
-            DataFrame with price history or None if insufficient data
-        """
-        try:
-            stock = Stock.query.filter_by(symbol=symbol.upper()).first()
-            if not stock:
-                logger.warning(f"Stock {symbol} not found")
-                return None
-            
-            # Get prices from last N days
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
-            prices = StockPrice.query.filter(
-                StockPrice.stock_id == stock.id,
-                StockPrice.timestamp >= cutoff_date
-            ).order_by(StockPrice.timestamp.asc()).all()
-            
-            if len(prices) < 20:  # Need minimum data for analysis
-                logger.warning(f"Insufficient price data for {symbol}: {len(prices)} records")
-                return None
-            
-            # Convert to DataFrame
-            data = [{
-                'timestamp': p.timestamp,
-                'open': p.open_price,
-                'high': p.high_price,
-                'low': p.low_price,
-                'close': p.close_price,
-                'volume': p.volume
-            } for p in prices]
-            
-            df = pd.DataFrame(data)
-            df.set_index('timestamp', inplace=True)
-            return df
-            
-        except Exception as e:
-            logger.error(f"Error getting price history for {symbol}: {e}")
-            return None
-    
-    def calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
-        """
-        Calculate Relative Strength Index
+            symbol: Stock ticker symbol (e.g., "AAPL")
+            contract_type: "call" or "put"
+            strike: Strike price
+            expiration: Expiration date (e.g., "2024-01-19")
+            bid: Bid price
+            ask: Ask price
+            last: Last trade price
+            volume: Trading volume
+            open_interest: Open interest
+            implied_volatility: IV as decimal (e.g., 0.25 for 25%)
+            underlying_price: Current stock price
+            days_to_expiration: Days until expiration
+            recent_momentum: Recent price momentum of underlying (-1.0 to 1.0)
         
-        Args:
-            prices: Series of closing prices
-            period: RSI period (default 14)
-            
         Returns:
-            RSI value (0-100)
+            OptionSignalScore with numeric score, breakdown, warnings, and explanation.
         """
-        try:
-            delta = prices.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-            
-            rs = gain / loss
-            rsi = 100 - (100 / (1 + rs))
-            return float(rsi.iloc[-1])
-        except Exception as e:
-            logger.error(f"Error calculating RSI: {e}")
-            return 50.0  # Neutral value
-    
-    def calculate_macd(self, prices: pd.Series) -> Tuple[float, float]:
-        """
-        Calculate MACD (Moving Average Convergence Divergence)
+        breakdown = {}
+        warnings = []
+        metadata = {
+            "strike": strike,
+            "expiration": expiration,
+            "bid": bid,
+            "ask": ask,
+            "last": last,
+            "volume": volume,
+            "open_interest": open_interest,
+            "implied_volatility": implied_volatility,
+            "underlying_price": underlying_price,
+            "days_to_expiration": days_to_expiration,
+            "recent_momentum": recent_momentum,
+        }
+
+        # Score each factor
+        breakdown["liquidity"] = self._score_liquidity(
+            bid, ask, volume, open_interest, warnings
+        )
+        breakdown["spread"] = self._score_spread(bid, ask, last, warnings)
+        breakdown["moneyness"] = self._score_moneyness(
+            strike, underlying_price, contract_type, warnings
+        )
+        breakdown["expiration"] = self._score_expiration(days_to_expiration, warnings)
+        breakdown["momentum"] = self._score_momentum(recent_momentum, warnings)
+        breakdown["data_quality"] = self._score_data_quality(
+            bid, ask, volume, open_interest, implied_volatility, underlying_price, warnings
+        )
+
+        # Aggregate score
+        total_score = sum(breakdown.values())
+        total_score = min(total_score, self.MAX_SCORE)  # Cap at 100
+
+        # Determine grade based on score and warnings
+        grade = self._determine_grade(total_score, warnings)
+
+        # Generate explanation
+        explanation = self._generate_explanation(
+            symbol, contract_type, total_score, grade, breakdown, warnings
+        )
+
+        strategy = f"{contract_type}_candidate"
+
+        return OptionSignalScore(
+            symbol=symbol,
+            strategy=strategy,
+            score=round(total_score, 1),
+            grade=grade,
+            breakdown={k: round(v, 1) for k, v in breakdown.items()},
+            warnings=warnings,
+            explanation=explanation,
+            metadata=metadata,
+        )
+
+    def _score_liquidity(
+        self,
+        bid: Optional[float],
+        ask: Optional[float],
+        volume: Optional[int],
+        open_interest: Optional[int],
+        warnings: List[str],
+    ) -> float:
+        """Score liquidity based on bid/ask presence, volume, and open interest.
         
-        Args:
-            prices: Series of closing prices
-            
-        Returns:
-            Tuple of (MACD value, signal line)
+        Heuristic: Presence of bid/ask is essential; volume and OI boost score.
         """
-        try:
-            exp1 = prices.ewm(span=12, adjust=False).mean()
-            exp2 = prices.ewm(span=26, adjust=False).mean()
-            macd = exp1 - exp2
-            signal = macd.ewm(span=9, adjust=False).mean()
-            return float(macd.iloc[-1]), float(signal.iloc[-1])
-        except Exception as e:
-            logger.error(f"Error calculating MACD: {e}")
-            return 0.0, 0.0
-    
-    def calculate_volatility(self, prices: pd.Series, period: int = 20) -> float:
-        """
-        Calculate historical volatility (annualized)
-        
-        Args:
-            prices: Series of closing prices
-            period: Period for calculation
-            
-        Returns:
-            Annualized volatility as percentage
-        """
-        try:
-            returns = prices.pct_change().dropna()
-            volatility = returns.rolling(window=period).std().iloc[-1]
-            # Annualize (assuming 252 trading days)
-            annualized_vol = volatility * np.sqrt(252) * 100
-            return float(annualized_vol)
-        except Exception as e:
-            logger.error(f"Error calculating volatility: {e}")
+        score = 0.0
+
+        # Bid/ask presence is baseline
+        if bid is not None and ask is not None:
+            score += 8.0
+        elif bid is not None or ask is not None:
+            score += 4.0
+            warnings.append("missing_bid_or_ask")
+        else:
+            warnings.append("no_bid_ask")
             return 0.0
-    
-    def predict_price_movement(self, df: pd.DataFrame) -> Dict:
-        """
-        Predict price movement based on technical indicators
-        
-        Args:
-            df: DataFrame with price history
-            
-        Returns:
-            Dictionary with prediction metrics
-        """
-        try:
-            closes = df['close']
-            current_price = float(closes.iloc[-1])
-            
-            # Calculate indicators
-            rsi = self.calculate_rsi(closes)
-            macd, signal = self.calculate_macd(closes)
-            volatility = self.calculate_volatility(closes)
-            ma_20 = float(closes.rolling(window=20).mean().iloc[-1])
-            ma_50 = float(closes.rolling(window=50).mean().iloc[-1]) if len(closes) >= 50 else ma_20
-            
-            # Simple prediction logic based on indicators
-            bullish_signals = 0
-            bearish_signals = 0
-            
-            # RSI analysis
-            if rsi < 30:
-                bullish_signals += 2  # Oversold
-            elif rsi > 70:
-                bearish_signals += 2  # Overbought
-            elif 40 <= rsi <= 60:
-                bullish_signals += 1  # Neutral momentum
-            
-            # MACD analysis
-            if macd > signal:
-                bullish_signals += 1
+
+        # Volume bonus
+        if volume is not None and volume > 0:
+            if volume >= 100:
+                score += 6.0
+            elif volume >= 10:
+                score += 3.0
             else:
-                bearish_signals += 1
-            
-            # Moving average analysis
-            if current_price > ma_20 > ma_50:
-                bullish_signals += 2  # Strong uptrend
-            elif current_price < ma_20 < ma_50:
-                bearish_signals += 2  # Strong downtrend
-            elif current_price > ma_20:
-                bullish_signals += 1
+                score += 1.0
+        else:
+            warnings.append("no_volume")
+
+        # Open interest bonus
+        if open_interest is not None and open_interest > 0:
+            if open_interest >= 100:
+                score += 6.0
+            elif open_interest >= 10:
+                score += 3.0
             else:
-                bearish_signals += 1
-            
-            # Calculate prediction
-            total_signals = bullish_signals + bearish_signals
-            bullish_probability = bullish_signals / total_signals if total_signals > 0 else 0.5
-            
-            # Predict price change (simple linear projection)
-            recent_trend = (closes.iloc[-1] - closes.iloc[-5]) / closes.iloc[-5]
-            predicted_change = recent_trend * 0.5  # Conservative estimate
-            predicted_price = current_price * (1 + predicted_change)
-            
-            # Determine recommendation
-            if bullish_probability > 0.65:
-                recommendation = 'buy'
-            elif bullish_probability < 0.35:
-                recommendation = 'sell'
-            else:
-                recommendation = 'hold'
-            
-            return {
-                'current_price': current_price,
-                'predicted_price': predicted_price,
-                'volatility': volatility,
-                'rsi': rsi,
-                'macd': macd,
-                'ma_20': ma_20,
-                'ma_50': ma_50,
-                'bullish_probability': bullish_probability,
-                'recommendation': recommendation,
-                'confidence': min(abs(bullish_probability - 0.5) * 2, 1.0)  # 0-1 scale
-            }
-            
-        except Exception as e:
-            logger.error(f"Error predicting price movement: {e}")
-            return None
-    
-    def analyze_option(self, symbol: str, option_type: str, strike_price: float, 
-                      expiration_days: int = 30) -> Optional[Dict]:
-        """
-        Analyze a stock option and predict success probability
+                score += 1.0
+        else:
+            warnings.append("no_open_interest")
+
+        return min(score, self.LIQUIDITY_MAX_POINTS)
+
+    def _score_spread(
+        self,
+        bid: Optional[float],
+        ask: Optional[float],
+        last: Optional[float],
+        warnings: List[str],
+    ) -> float:
+        """Score spread width. Narrower spreads are better.
         
-        Args:
-            symbol: Stock symbol
-            option_type: 'call' or 'put'
-            strike_price: Option strike price
-            expiration_days: Days until expiration
-            
-        Returns:
-            Dictionary with analysis results or None if error
+        Heuristic: Spread as % of mid-price; lower % = higher score.
         """
-        try:
-            # Get price history
-            df = self.get_price_history(symbol, days=60)
-            if df is None:
-                return None
-            
-            # Get prediction
-            prediction = self.predict_price_movement(df)
-            if prediction is None:
-                return None
-            
-            current_price = prediction['current_price']
-            predicted_price = prediction['predicted_price']
-            
-            # Calculate option success probability
-            if option_type.lower() == 'call':
-                # Call option profits if price goes above strike
-                price_target = strike_price
-                success_prob = prediction['bullish_probability']
-                
-                # Adjust based on how far strike is from current price
-                distance_ratio = (strike_price - current_price) / current_price
-                if distance_ratio > 0.1:  # Strike is >10% above current
-                    success_prob *= 0.7
-                elif distance_ratio < -0.05:  # Strike is already in the money
-                    success_prob = min(success_prob * 1.2, 0.95)
-                    
-            else:  # put
-                # Put option profits if price goes below strike
-                price_target = strike_price
-                success_prob = 1 - prediction['bullish_probability']
-                
-                # Adjust based on how far strike is from current price
-                distance_ratio = (current_price - strike_price) / current_price
-                if distance_ratio > 0.1:  # Strike is >10% below current
-                    success_prob *= 0.7
-                elif distance_ratio < -0.05:  # Strike is already in the money
-                    success_prob = min(success_prob * 1.2, 0.95)
-            
-            # Adjust for time and volatility
-            time_factor = min(expiration_days / 30, 1.0)  # Longer time = better
-            volatility_factor = min(prediction['volatility'] / 30, 1.5)  # Higher vol = more movement
-            
-            adjusted_prob = success_prob * (0.7 + 0.3 * time_factor) * (0.8 + 0.2 * volatility_factor)
-            adjusted_prob = min(max(adjusted_prob, 0.05), 0.95)  # Clamp between 5% and 95%
-            
-            # Generate notes
-            notes = f"Analysis based on {len(df)} days of price data. "
-            notes += f"RSI: {prediction['rsi']:.1f}, "
-            notes += f"Volatility: {prediction['volatility']:.1f}%. "
-            notes += f"Recommendation: {prediction['recommendation'].upper()}"
-            
-            return {
-                'symbol': symbol.upper(),
-                'option_type': option_type.lower(),
-                'strike_price': strike_price,
-                'expiration_days': expiration_days,
-                'current_price': current_price,
-                'predicted_price': predicted_price,
-                'volatility': prediction['volatility'],
-                'success_probability': adjusted_prob,
-                'confidence_score': prediction['confidence'],
-                'rsi': prediction['rsi'],
-                'macd': prediction['macd'],
-                'moving_avg_20': prediction['ma_20'],
-                'moving_avg_50': prediction['ma_50'],
-                'recommendation': prediction['recommendation'],
-                'notes': notes
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing option for {symbol}: {e}")
-            return None
-    
-    def save_option_analysis(self, analysis: Dict) -> Optional[StockOption]:
-        """
-        Save option analysis to database
+        if bid is None or ask is None:
+            warnings.append("cannot_score_spread")
+            return 0.0
+
+        if bid >= ask:
+            warnings.append("invalid_bid_ask")
+            return 0.0
+
+        spread = ask - bid
+        mid = (bid + ask) / 2.0
+
+        if mid <= 0:
+            warnings.append("invalid_mid_price")
+            return 0.0
+
+        spread_pct = (spread / mid) * 100.0
+
+        # Heuristic scoring: tight spread (< 1%) = full points, wide (> 5%) = low points
+        if spread_pct < 1.0:
+            score = self.SPREAD_MAX_POINTS
+        elif spread_pct < 2.0:
+            score = self.SPREAD_MAX_POINTS * 0.8
+        elif spread_pct < 5.0:
+            score = self.SPREAD_MAX_POINTS * 0.5
+        else:
+            score = self.SPREAD_MAX_POINTS * 0.2
+            warnings.append("wide_spread")
+
+        return score
+
+    def _score_moneyness(
+        self,
+        strike: Optional[float],
+        underlying_price: Optional[float],
+        contract_type: str,
+        warnings: List[str],
+    ) -> float:
+        """Score moneyness (how close strike is to underlying price).
         
-        Args:
-            analysis: Dictionary with analysis results
-            
-        Returns:
-            StockOption object or None if error
+        Heuristic: Near-the-money (ATM) contracts score higher.
         """
-        try:
-            stock = Stock.query.filter_by(symbol=analysis['symbol'].upper()).first()
-            if not stock:
-                logger.error(f"Stock {analysis['symbol']} not found")
-                return None
-            
-            expiration_date = datetime.utcnow() + timedelta(days=analysis['expiration_days'])
-            
-            option = StockOption(
-                stock_id=stock.id,
-                option_type=analysis['option_type'],
-                strike_price=analysis['strike_price'],
-                expiration_date=expiration_date,
-                current_price=analysis['current_price'],
-                predicted_price=analysis['predicted_price'],
-                volatility=analysis['volatility'],
-                success_probability=analysis['success_probability'],
-                confidence_score=analysis['confidence_score'],
-                rsi=analysis['rsi'],
-                macd=analysis['macd'],
-                moving_avg_20=analysis['moving_avg_20'],
-                moving_avg_50=analysis['moving_avg_50'],
-                recommendation=analysis['recommendation'],
-                notes=analysis['notes']
+        if strike is None or underlying_price is None:
+            warnings.append("cannot_score_moneyness")
+            return 0.0
+
+        if underlying_price <= 0:
+            warnings.append("invalid_underlying_price")
+            return 0.0
+
+        # Moneyness: distance from ATM as % of underlying
+        distance = abs(strike - underlying_price)
+        moneyness_pct = (distance / underlying_price) * 100.0
+
+        # Heuristic: ATM (< 2%) = full points, OTM (> 10%) = low points
+        if moneyness_pct < 2.0:
+            score = self.MONEYNESS_MAX_POINTS
+        elif moneyness_pct < 5.0:
+            score = self.MONEYNESS_MAX_POINTS * 0.7
+        elif moneyness_pct < 10.0:
+            score = self.MONEYNESS_MAX_POINTS * 0.4
+        else:
+            score = self.MONEYNESS_MAX_POINTS * 0.1
+
+        return score
+
+    def _score_expiration(
+        self,
+        days_to_expiration: Optional[int],
+        warnings: List[str],
+    ) -> float:
+        """Score expiration. Prefer contracts with reasonable time decay.
+        
+        Heuristic: 7-60 days = good, < 7 or > 180 = lower score.
+        """
+        if days_to_expiration is None:
+            warnings.append("no_expiration_data")
+            return 0.0
+
+        if days_to_expiration < 0:
+            warnings.append("expired_contract")
+            return 0.0
+
+        # Heuristic: sweet spot is 7-60 days
+        if 7 <= days_to_expiration <= 60:
+            score = self.EXPIRATION_MAX_POINTS
+        elif 1 <= days_to_expiration < 7:
+            score = self.EXPIRATION_MAX_POINTS * 0.5
+            warnings.append("short_expiration")
+        elif 60 < days_to_expiration <= 180:
+            score = self.EXPIRATION_MAX_POINTS * 0.7
+        else:
+            score = self.EXPIRATION_MAX_POINTS * 0.2
+            warnings.append("long_expiration")
+
+        return score
+
+    def _score_momentum(
+        self,
+        recent_momentum: Optional[float],
+        warnings: List[str],
+    ) -> float:
+        """Score recent momentum of underlying stock.
+        
+        Heuristic: Positive momentum for calls, negative for puts (not implemented here).
+        Momentum range: -1.0 to 1.0.
+        """
+        if recent_momentum is None:
+            warnings.append("no_momentum_data")
+            return self.MOMENTUM_MAX_POINTS * 0.5  # Neutral score
+
+        # Clamp to [-1, 1]
+        momentum = max(-1.0, min(1.0, recent_momentum))
+
+        # Heuristic: positive momentum = higher score
+        # Map [-1, 1] to [0, MOMENTUM_MAX_POINTS]
+        score = ((momentum + 1.0) / 2.0) * self.MOMENTUM_MAX_POINTS
+
+        return score
+
+    def _score_data_quality(
+        self,
+        bid: Optional[float],
+        ask: Optional[float],
+        volume: Optional[int],
+        open_interest: Optional[int],
+        implied_volatility: Optional[float],
+        underlying_price: Optional[float],
+        warnings: List[str],
+    ) -> float:
+        """Score data completeness and quality.
+        
+        Heuristic: Each present field contributes to quality score.
+        """
+        score = 0.0
+        fields_present = 0
+        fields_total = 6
+
+        if bid is not None and ask is not None:
+            fields_present += 1
+        if volume is not None:
+            fields_present += 1
+        if open_interest is not None:
+            fields_present += 1
+        if implied_volatility is not None:
+            fields_present += 1
+        if underlying_price is not None:
+            fields_present += 1
+        # Expiration is assumed present in most cases
+        fields_present += 1
+
+        # Score based on % of fields present
+        completeness = fields_present / fields_total
+        score = completeness * self.DATA_QUALITY_MAX_POINTS
+
+        if completeness < 0.5:
+            warnings.append("incomplete_data")
+
+        return score
+
+    def _determine_grade(
+        self,
+        score: float,
+        warnings: List[str],
+    ) -> str:
+        """Determine risk/quality grade based on score and warnings.
+        
+        Grades: "avoid", "watchlist", "interesting", "high_risk"
+        """
+        # If critical warnings, downgrade
+        critical_warnings = {"expired_contract", "invalid_bid_ask", "no_bid_ask"}
+        if any(w in critical_warnings for w in warnings):
+            return "avoid"
+
+        # Score-based grading
+        if score >= 75:
+            return "interesting"
+        elif score >= 50:
+            return "watchlist"
+        elif score >= 25:
+            return "watchlist"
+        else:
+            return "avoid"
+
+    def _generate_explanation(
+        self,
+        symbol: str,
+        contract_type: str,
+        score: float,
+        grade: str,
+        breakdown: Dict[str, float],
+        warnings: List[str],
+    ) -> str:
+        """Generate human-readable explanation of the score."""
+        parts = []
+
+        # Opening
+        parts.append(
+            f"{symbol} {contract_type.upper()} contract scored {score}/100 ({grade})."
+        )
+
+        # Strengths
+        strengths = [k for k, v in breakdown.items() if v >= 10]
+        if strengths:
+            parts.append(
+                f"Strengths: {', '.join(strengths)} are solid."
             )
-            
-            db.session.add(option)
-            db.session.commit()
-            
-            logger.info(f"Saved option analysis for {analysis['symbol']} {analysis['option_type']} ${analysis['strike_price']}")
-            return option
-            
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"Error saving option analysis: {e}")
-            return None
-    
-    def get_top_opportunities(self, min_probability: float = 0.6, limit: int = 10) -> List[Dict]:
-        """
-        Get top option opportunities based on success probability
+
+        # Weaknesses
+        weaknesses = [k for k, v in breakdown.items() if v < 5]
+        if weaknesses:
+            parts.append(
+                f"Concerns: {', '.join(weaknesses)} are weak."
+            )
+
+        # Warnings
+        if warnings:
+            warning_str = ", ".join(warnings)
+            parts.append(f"Warnings: {warning_str}.")
+
+        # Disclaimer
+        parts.append(
+            "This is a structural signal, not financial advice or a price prediction."
+        )
+
+        return " ".join(parts)
+
+    def rank_option_contracts(
+        self,
+        contracts: List[Dict[str, Any]],
+    ) -> List[OptionSignalScore]:
+        """Rank a list of option contracts by signal score.
         
         Args:
-            min_probability: Minimum success probability threshold
-            limit: Maximum number of results
-            
+            contracts: List of dicts with keys matching score_option_contract() params.
+        
         Returns:
-            List of option analysis dictionaries
+            List of OptionSignalScore sorted by score (descending).
         """
-        try:
-            options = StockOption.query.filter(
-                StockOption.success_probability >= min_probability,
-                StockOption.expiration_date > datetime.utcnow()
-            ).order_by(
-                StockOption.success_probability.desc(),
-                StockOption.confidence_score.desc()
-            ).limit(limit).all()
-            
-            return [opt.to_dict() for opt in options]
-            
-        except Exception as e:
-            logger.error(f"Error getting top opportunities: {e}")
-            return []
+        scores = []
+        for contract in contracts:
+            score = self.score_option_contract(**contract)
+            scores.append(score)
+
+        # Sort by score descending
+        scores.sort(key=lambda x: x.score, reverse=True)
+        return scores
