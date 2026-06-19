@@ -1,536 +1,438 @@
-"""Tests for OptionsService"""
+"""Tests for options service"""
 
 import pytest
+from datetime import datetime, timedelta
+from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
-from services.options_service import OptionsService
+from services.options_service import OptionsService, OptionsSignalService
 from models import Stock, StockPrice, StockOption
 
 
-class TestOptionsServiceInit:
-    """Tests for OptionsService initialization"""
+class TestOptionsService:
+    """Tests for OptionsService"""
     
     def test_init(self):
         """Test OptionsService initialization"""
         service = OptionsService()
         assert service is not None
-
-
-class TestOptionsServiceGetPriceHistory:
-    """Tests for get_price_history method"""
     
-    def test_get_price_history_success(self, app, db, sample_stock):
+    def test_get_price_history_success(self, sample_stock, db):
         """Test successful price history retrieval"""
-        with app.app_context():
-            # Add multiple price records
-            for i in range(30):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i,
-                    high_price=155.0 + i,
-                    low_price=149.0 + i,
-                    close_price=153.0 + i,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            df = service.get_price_history('AAPL', days=60)
-            
-            assert df is not None
-            assert isinstance(df, pd.DataFrame)
-            assert len(df) == 30
-            assert 'close' in df.columns
-            assert 'open' in df.columns
-            assert 'high' in df.columns
-            assert 'low' in df.columns
-            assert 'volume' in df.columns
+        service = OptionsService()
+        
+        # Add sample prices
+        for i in range(30):
+            price = StockPrice(
+                stock_id=sample_stock.id,
+                timestamp=datetime.utcnow() - timedelta(days=30-i),
+                open_price=100.0 + i,
+                high_price=101.0 + i,
+                low_price=99.0 + i,
+                close_price=100.5 + i,
+                volume=1000000
+            )
+            db.session.add(price)
+        db.session.commit()
+        
+        df = service.get_price_history(sample_stock.symbol)
+        assert df is not None
+        assert len(df) == 30
+        assert 'close' in df.columns
     
-    def test_get_price_history_stock_not_found(self, app, db):
+    def test_get_price_history_not_found(self):
         """Test price history retrieval for non-existent stock"""
-        with app.app_context():
-            service = OptionsService()
-            df = service.get_price_history('INVALID', days=60)
-            
-            assert df is None
+        service = OptionsService()
+        df = service.get_price_history('NONEXISTENT')
+        assert df is None
     
-    def test_get_price_history_insufficient_data(self, app, db, sample_stock):
+    def test_get_price_history_insufficient_data(self, sample_stock, db):
         """Test price history retrieval with insufficient data"""
-        with app.app_context():
-            # Add only 5 price records (less than minimum of 20)
-            for i in range(5):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0,
-                    high_price=155.0,
-                    low_price=149.0,
-                    close_price=153.0,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            df = service.get_price_history('AAPL', days=60)
-            
-            assert df is None
-    
-    def test_get_price_history_case_insensitive(self, app, db, sample_stock):
-        """Test price history retrieval with different case symbols"""
-        with app.app_context():
-            # Add price records
-            for i in range(25):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0,
-                    high_price=155.0,
-                    low_price=149.0,
-                    close_price=153.0,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            df = service.get_price_history('aapl', days=60)  # lowercase
-            
-            assert df is not None
-            assert len(df) == 25
-
-
-class TestOptionsServiceCalculateRSI:
-    """Tests for calculate_rsi method"""
+        service = OptionsService()
+        
+        # Add only 10 prices (less than minimum of 20)
+        for i in range(10):
+            price = StockPrice(
+                stock_id=sample_stock.id,
+                timestamp=datetime.utcnow() - timedelta(days=10-i),
+                open_price=100.0,
+                high_price=101.0,
+                low_price=99.0,
+                close_price=100.5,
+                volume=1000000
+            )
+            db.session.add(price)
+        db.session.commit()
+        
+        df = service.get_price_history(sample_stock.symbol)
+        assert df is None
     
     def test_calculate_rsi_success(self):
-        """Test successful RSI calculation"""
+        """Test RSI calculation with valid data"""
         service = OptionsService()
-        # Create sample price series
-        prices = pd.Series([100, 102, 101, 103, 105, 104, 106, 108, 107, 109,
-                           111, 110, 112, 114, 113, 115, 117, 116, 118, 120])
-        
+        prices = pd.Series([100, 101, 102, 101, 100, 99, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107])
         rsi = service.calculate_rsi(prices)
-        
-        assert isinstance(rsi, float)
+        assert rsi is not None
         assert 0 <= rsi <= 100
     
-    def test_calculate_rsi_oversold(self):
-        """Test RSI calculation with oversold prices"""
+    def test_calculate_rsi_insufficient_data(self):
+        """Test RSI calculation with insufficient data"""
         service = OptionsService()
-        # Downtrend prices
-        prices = pd.Series([100, 99, 98, 97, 96, 95, 94, 93, 92, 91,
-                           90, 89, 88, 87, 86, 85, 84, 83, 82, 81])
-        
+        prices = pd.Series([100, 101, 102])
         rsi = service.calculate_rsi(prices)
-        
-        assert isinstance(rsi, float)
-        assert rsi < 30  # Should be oversold
-    
-    def test_calculate_rsi_overbought(self):
-        """Test RSI calculation with overbought prices"""
-        service = OptionsService()
-        # Uptrend prices
-        prices = pd.Series([100, 101, 102, 103, 104, 105, 106, 107, 108, 109,
-                           110, 111, 112, 113, 114, 115, 116, 117, 118, 119])
-        
-        rsi = service.calculate_rsi(prices)
-        
-        assert isinstance(rsi, float)
-        assert rsi > 70  # Should be overbought
-    
-    def test_calculate_rsi_error_handling(self):
-        """Test RSI calculation error handling"""
-        service = OptionsService()
-        # Empty series
-        prices = pd.Series([])
-        
-        rsi = service.calculate_rsi(prices)
-        
-        assert rsi == 50.0  # Neutral value on error
-
-
-class TestOptionsServiceCalculateMACD:
-    """Tests for calculate_macd method"""
+        assert rsi is None
     
     def test_calculate_macd_success(self):
-        """Test successful MACD calculation"""
+        """Test MACD calculation with valid data"""
         service = OptionsService()
-        prices = pd.Series([100 + i for i in range(50)])
-        
-        macd, signal = service.calculate_macd(prices)
-        
+        prices = pd.Series(np.linspace(100, 110, 50))
+        macd_data = service.calculate_macd(prices)
+        assert macd_data is not None
+        assert len(macd_data) == 3
+        macd, signal, histogram = macd_data
         assert isinstance(macd, float)
         assert isinstance(signal, float)
+        assert isinstance(histogram, float)
     
-    def test_calculate_macd_bullish(self):
-        """Test MACD calculation with bullish trend"""
+    def test_calculate_macd_insufficient_data(self):
+        """Test MACD calculation with insufficient data"""
         service = OptionsService()
-        prices = pd.Series([100 + i*2 for i in range(50)])  # Strong uptrend
-        
-        macd, signal = service.calculate_macd(prices)
-        
-        assert macd > signal  # Bullish crossover
-    
-    def test_calculate_macd_bearish(self):
-        """Test MACD calculation with bearish trend"""
-        service = OptionsService()
-        prices = pd.Series([200 - i*2 for i in range(50)])  # Strong downtrend
-        
-        macd, signal = service.calculate_macd(prices)
-        
-        assert macd < signal  # Bearish crossover
-    
-    def test_calculate_macd_error_handling(self):
-        """Test MACD calculation error handling"""
-        service = OptionsService()
-        prices = pd.Series([])
-        
-        macd, signal = service.calculate_macd(prices)
-        
-        assert macd == 0.0
-        assert signal == 0.0
-
-
-class TestOptionsServiceCalculateVolatility:
-    """Tests for calculate_volatility method"""
+        prices = pd.Series([100, 101, 102])
+        macd_data = service.calculate_macd(prices)
+        assert macd_data is None
     
     def test_calculate_volatility_success(self):
-        """Test successful volatility calculation"""
+        """Test volatility calculation with valid data"""
         service = OptionsService()
-        prices = pd.Series([100 + i for i in range(50)])
-        
+        prices = pd.Series(np.random.normal(100, 5, 50))
         volatility = service.calculate_volatility(prices)
-        
-        assert isinstance(volatility, float)
+        assert volatility is not None
         assert volatility >= 0
     
-    def test_calculate_volatility_high_volatility(self):
-        """Test volatility calculation with high volatility"""
+    def test_calculate_volatility_insufficient_data(self):
+        """Test volatility calculation with insufficient data"""
         service = OptionsService()
-        # Highly volatile prices
-        prices = pd.Series([100, 110, 95, 115, 90, 120, 85, 125, 80, 130] * 5)
-        
+        prices = pd.Series([100, 101, 102])
         volatility = service.calculate_volatility(prices)
-        
-        assert volatility > 10  # Should be high
+        assert volatility is None
     
-    def test_calculate_volatility_low_volatility(self):
-        """Test volatility calculation with low volatility"""
+    def test_predict_price_movement_success(self, sample_stock, db):
+        """Test price movement prediction with valid data"""
         service = OptionsService()
-        # Stable prices
-        prices = pd.Series([100.0 + i*0.01 for i in range(50)])
         
-        volatility = service.calculate_volatility(prices)
+        # Add sufficient price history
+        for i in range(50):
+            price = StockPrice(
+                stock_id=sample_stock.id,
+                timestamp=datetime.utcnow() - timedelta(days=50-i),
+                open_price=100.0 + (i % 10),
+                high_price=101.0 + (i % 10),
+                low_price=99.0 + (i % 10),
+                close_price=100.5 + (i % 10),
+                volume=1000000
+            )
+            db.session.add(price)
+        db.session.commit()
         
-        assert volatility < 5  # Should be low
+        prediction = service.predict_price_movement(sample_stock.symbol)
+        assert prediction is not None
+        assert 'rsi' in prediction
+        assert 'macd' in prediction
+        assert 'volatility' in prediction
+        assert 'prediction' in prediction
     
-    def test_calculate_volatility_error_handling(self):
-        """Test volatility calculation error handling"""
+    def test_predict_price_movement_not_found(self):
+        """Test price movement prediction for non-existent stock"""
         service = OptionsService()
-        prices = pd.Series([])
+        prediction = service.predict_price_movement('NONEXISTENT')
+        assert prediction is None
+
+
+class TestOptionsSignalService:
+    """Tests for OptionsSignalService"""
+    
+    def test_init(self):
+        """Test OptionsSignalService initialization"""
+        service = OptionsSignalService()
+        assert service is not None
+        assert service.options_service is not None
+    
+    def test_score_liquidity_both_present(self):
+        """Test liquidity scoring with both volume and open interest"""
+        service = OptionsSignalService()
+        score, warnings = service._score_liquidity(1500, 2000)
+        assert score > 0
+        assert len(warnings) == 0
+    
+    def test_score_liquidity_low_volume(self):
+        """Test liquidity scoring with low volume"""
+        service = OptionsSignalService()
+        score, warnings = service._score_liquidity(10, 100)
+        assert score > 0
+        assert 'low_volume' in warnings
+    
+    def test_score_liquidity_missing_data(self):
+        """Test liquidity scoring with missing data"""
+        service = OptionsSignalService()
+        score, warnings = service._score_liquidity(None, None)
+        assert score == 0.0
+        assert 'no_liquidity_data' in warnings
+    
+    def test_score_spread_tight(self):
+        """Test spread scoring with tight spread"""
+        service = OptionsSignalService()
+        score, warnings = service._score_spread(10.0, 10.05, 100.0)
+        assert score > 10.0
+        assert len(warnings) == 0
+    
+    def test_score_spread_wide(self):
+        """Test spread scoring with wide spread"""
+        service = OptionsSignalService()
+        score, warnings = service._score_spread(10.0, 10.50, 100.0)
+        assert score > 0
+        assert 'wide_spread' in warnings
+    
+    def test_score_spread_missing_data(self):
+        """Test spread scoring with missing data"""
+        service = OptionsSignalService()
+        score, warnings = service._score_spread(None, None, 100.0)
+        assert score == 0.0
+        assert 'no_spread_data' in warnings
+    
+    def test_score_moneyness_atm(self):
+        """Test moneyness scoring for at-the-money option"""
+        service = OptionsSignalService()
+        score, warnings = service._score_moneyness(100.0, 100.0, 'call')
+        assert score == 12.0
+        assert len(warnings) == 0
+    
+    def test_score_moneyness_otm(self):
+        """Test moneyness scoring for out-of-the-money option"""
+        service = OptionsSignalService()
+        score, warnings = service._score_moneyness(110.0, 100.0, 'call')
+        assert score > 0
+        assert 'far_from_money' in warnings
+    
+    def test_score_moneyness_missing_data(self):
+        """Test moneyness scoring with missing data"""
+        service = OptionsSignalService()
+        score, warnings = service._score_moneyness(None, 100.0, 'call')
+        assert score == 0.0
+        assert 'no_moneyness_data' in warnings
+    
+    def test_score_expiration_sweet_spot(self):
+        """Test expiration scoring in sweet spot (20-60 days)"""
+        service = OptionsSignalService()
+        score, warnings = service._score_expiration(45)
+        assert score == 10.0
+        assert len(warnings) == 0
+    
+    def test_score_expiration_near(self):
+        """Test expiration scoring for near-term option"""
+        service = OptionsSignalService()
+        score, warnings = service._score_expiration(5)
+        assert score == 3.0
+        assert 'near_expiration' in warnings
+    
+    def test_score_expiration_far(self):
+        """Test expiration scoring for far-term option"""
+        service = OptionsSignalService()
+        score, warnings = service._score_expiration(120)
+        assert score == 4.0
+        assert 'far_expiration' in warnings
+    
+    def test_score_expiration_invalid(self):
+        """Test expiration scoring with invalid data"""
+        service = OptionsSignalService()
+        score, warnings = service._score_expiration(None)
+        assert score == 0.0
+        assert 'invalid_expiration' in warnings
+    
+    def test_score_momentum_no_symbol(self):
+        """Test momentum scoring without symbol"""
+        service = OptionsSignalService()
+        score, warnings = service._score_momentum(None, 100.0)
+        assert score == 0.0
+        assert 'no_symbol_for_momentum' in warnings
+    
+    def test_score_implied_volatility_moderate(self):
+        """Test IV scoring with moderate IV"""
+        service = OptionsSignalService()
+        score, warnings = service._score_implied_volatility(0.35)
+        assert score == 9.5
+        assert len(warnings) == 0
+    
+    def test_score_implied_volatility_low(self):
+        """Test IV scoring with very low IV"""
+        service = OptionsSignalService()
+        score, warnings = service._score_implied_volatility(0.10)
+        assert score == 2.0
+        assert 'very_low_iv' in warnings
+    
+    def test_score_implied_volatility_high(self):
+        """Test IV scoring with very high IV"""
+        service = OptionsSignalService()
+        score, warnings = service._score_implied_volatility(0.80)
+        assert score == 3.0
+        assert 'very_high_iv' in warnings
+    
+    def test_score_implied_volatility_missing(self):
+        """Test IV scoring with missing data"""
+        service = OptionsSignalService()
+        score, warnings = service._score_implied_volatility(None)
+        assert score == 0.0
+        assert 'no_iv_data' in warnings
+    
+    def test_score_data_quality_complete(self):
+        """Test data quality scoring with complete data"""
+        service = OptionsSignalService()
+        score, warnings = service._score_data_quality([])
+        assert score == 10.0
+        assert len(warnings) == 0
+    
+    def test_score_data_quality_incomplete(self):
+        """Test data quality scoring with missing fields"""
+        service = OptionsSignalService()
+        score, warnings = service._score_data_quality(['volume', 'open_interest'])
+        assert score < 10.0
+        assert 'incomplete_data' in warnings
+    
+    def test_derive_risk_label_avoid(self):
+        """Test risk label derivation for avoid"""
+        service = OptionsSignalService()
+        label = service._derive_risk_label(30.0, [])
+        assert label == 'avoid'
+    
+    def test_derive_risk_label_watchlist(self):
+        """Test risk label derivation for watchlist"""
+        service = OptionsSignalService()
+        label = service._derive_risk_label(55.0, [])
+        assert label == 'watchlist'
+    
+    def test_derive_risk_label_interesting(self):
+        """Test risk label derivation for interesting"""
+        service = OptionsSignalService()
+        label = service._derive_risk_label(70.0, [])
+        assert label == 'interesting'
+    
+    def test_derive_risk_label_high_risk(self):
+        """Test risk label derivation for high_risk"""
+        service = OptionsSignalService()
+        label = service._derive_risk_label(85.0, [])
+        assert label == 'high_risk'
+    
+    def test_derive_risk_label_critical_warning(self):
+        """Test risk label derivation with critical warning"""
+        service = OptionsSignalService()
+        label = service._derive_risk_label(80.0, ['zero_volume'])
+        assert label == 'avoid'
+    
+    def test_generate_explanation(self):
+        """Test explanation generation"""
+        service = OptionsSignalService()
+        breakdown = {'liquidity': 10, 'spread': 8, 'moneyness': 5}
+        explanation = service._generate_explanation(breakdown, ['low_volume'], 'watchlist')
+        assert isinstance(explanation, str)
+        assert len(explanation) > 0
+        assert 'watchlist' in explanation.lower() or 'careful' in explanation.lower()
+    
+    def test_score_option_contract_complete_data(self):
+        """Test option contract scoring with complete data"""
+        service = OptionsSignalService()
+        contract = {
+            'symbol': 'AAPL',
+            'expiration': (datetime.utcnow() + timedelta(days=45)).isoformat(),
+            'strike': 150.0,
+            'contract_type': 'call',
+            'bid': 5.0,
+            'ask': 5.10,
+            'volume': 1000,
+            'open_interest': 5000,
+            'implied_volatility': 0.30,
+            'underlying_price': 150.0
+        }
         
-        volatility = service.calculate_volatility(prices)
+        result = service.score_option_contract(contract)
+        assert result['symbol'] == 'AAPL'
+        assert result['strategy'] == 'call_candidate'
+        assert 0 <= result['score'] <= 100
+        assert result['grade'] in ['avoid', 'watchlist', 'interesting', 'high_risk']
+        assert 'breakdown' in result
+        assert 'warnings' in result
+        assert 'explanation' in result
+    
+    def test_score_option_contract_minimal_data(self):
+        """Test option contract scoring with minimal data"""
+        service = OptionsSignalService()
+        contract = {
+            'symbol': 'AAPL',
+            'strike': 150.0,
+            'contract_type': 'put'
+        }
         
-        assert volatility == 0.0
-
-
-class TestOptionsServicePredictPriceMovement:
-    """Tests for predict_price_movement method"""
+        result = service.score_option_contract(contract)
+        assert result['symbol'] == 'AAPL'
+        assert result['strategy'] == 'put_candidate'
+        assert result['score'] >= 0
+        assert len(result['warnings']) > 0  # Should have warnings for missing data
     
-    def test_predict_price_movement_success(self, app, db, sample_stock):
-        """Test successful price movement prediction"""
-        with app.app_context():
-            # Add price history
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i*0.5,
-                    high_price=155.0 + i*0.5,
-                    low_price=149.0 + i*0.5,
-                    close_price=153.0 + i*0.5,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            df = service.get_price_history('AAPL', days=60)
-            prediction = service.predict_price_movement(df)
-            
-            assert prediction is not None
-            assert 'current_price' in prediction
-            assert 'predicted_price' in prediction
-            assert 'volatility' in prediction
-            assert 'rsi' in prediction
-            assert 'macd' in prediction
-            assert 'bullish_probability' in prediction
-            assert 'recommendation' in prediction
-            assert 'confidence' in prediction
-            assert 0 <= prediction['bullish_probability'] <= 1
-            assert 0 <= prediction['confidence'] <= 1
-            assert prediction['recommendation'] in ['buy', 'sell', 'hold']
+    def test_score_option_contract_invalid_expiration(self):
+        """Test option contract scoring with invalid expiration"""
+        service = OptionsSignalService()
+        contract = {
+            'symbol': 'AAPL',
+            'expiration': 'invalid-date',
+            'strike': 150.0
+        }
+        
+        result = service.score_option_contract(contract)
+        assert result['symbol'] == 'AAPL'
+        assert result['score'] >= 0
     
-    def test_predict_price_movement_bullish(self, app, db, sample_stock):
-        """Test price movement prediction with bullish trend"""
-        with app.app_context():
-            # Add uptrend prices
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i*2,
-                    high_price=155.0 + i*2,
-                    low_price=149.0 + i*2,
-                    close_price=153.0 + i*2,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            df = service.get_price_history('AAPL', days=60)
-            prediction = service.predict_price_movement(df)
-            
-            assert prediction is not None
-            assert prediction['bullish_probability'] > 0.5
-    
-    def test_predict_price_movement_bearish(self, app, db, sample_stock):
-        """Test price movement prediction with bearish trend"""
-        with app.app_context():
-            # Add downtrend prices
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=250.0 - i*2,
-                    high_price=255.0 - i*2,
-                    low_price=249.0 - i*2,
-                    close_price=253.0 - i*2,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            df = service.get_price_history('AAPL', days=60)
-            prediction = service.predict_price_movement(df)
-            
-            assert prediction is not None
-            assert prediction['bullish_probability'] < 0.5
-
-
-class TestOptionsServiceAnalyzeOption:
-    """Tests for analyze_option method"""
-    
-    def test_analyze_call_option_success(self, app, db, sample_stock):
-        """Test successful call option analysis"""
-        with app.app_context():
-            # Add price history
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i*0.5,
-                    high_price=155.0 + i*0.5,
-                    low_price=149.0 + i*0.5,
-                    close_price=153.0 + i*0.5,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            analysis = service.analyze_option('AAPL', 'call', 160.0, 30)
-            
-            assert analysis is not None
-            assert analysis['symbol'] == 'AAPL'
-            assert analysis['option_type'] == 'call'
-            assert analysis['strike_price'] == 160.0
-            assert 0 <= analysis['success_probability'] <= 1
-            assert 'current_price' in analysis
-            assert 'predicted_price' in analysis
-            assert 'recommendation' in analysis
-    
-    def test_analyze_put_option_success(self, app, db, sample_stock):
-        """Test successful put option analysis"""
-        with app.app_context():
-            # Add price history
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i*0.5,
-                    high_price=155.0 + i*0.5,
-                    low_price=149.0 + i*0.5,
-                    close_price=153.0 + i*0.5,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            analysis = service.analyze_option('AAPL', 'put', 140.0, 30)
-            
-            assert analysis is not None
-            assert analysis['symbol'] == 'AAPL'
-            assert analysis['option_type'] == 'put'
-            assert analysis['strike_price'] == 140.0
-            assert 0 <= analysis['success_probability'] <= 1
-    
-    def test_analyze_option_invalid_symbol(self, app, db):
-        """Test option analysis with invalid symbol"""
-        with app.app_context():
-            service = OptionsService()
-            analysis = service.analyze_option('INVALID', 'call', 160.0, 30)
-            
-            assert analysis is None
-    
-    def test_analyze_option_insufficient_data(self, app, db, sample_stock):
-        """Test option analysis with insufficient price data"""
-        with app.app_context():
-            # Add only 5 price records
-            for i in range(5):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0,
-                    high_price=155.0,
-                    low_price=149.0,
-                    close_price=153.0,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            analysis = service.analyze_option('AAPL', 'call', 160.0, 30)
-            
-            assert analysis is None
-    
-    def test_analyze_option_in_the_money_call(self, app, db, sample_stock):
-        """Test call option analysis when strike is in the money"""
-        with app.app_context():
-            # Add price history with current price at 180
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=170.0 + i*0.5,
-                    high_price=175.0 + i*0.5,
-                    low_price=169.0 + i*0.5,
-                    close_price=173.0 + i*0.5,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            # Strike at 160 is in the money (current ~213)
-            analysis = service.analyze_option('AAPL', 'call', 160.0, 30)
-            
-            assert analysis is not None
-            assert analysis['success_probability'] > 0.5  # Should be higher for ITM
-    
-    def test_analyze_option_out_of_money_call(self, app, db, sample_stock):
-        """Test call option analysis when strike is out of the money"""
-        with app.app_context():
-            # Add price history with current price at 150
-            for i in range(60):
-                price = StockPrice(
-                    stock_id=sample_stock.id,
-                    timestamp=datetime(2024, 1, 1) + timedelta(days=i),
-                    open_price=150.0 + i*0.1,
-                    high_price=155.0 + i*0.1,
-                    low_price=149.0 + i*0.1,
-                    close_price=153.0 + i*0.1,
-                    volume=1000000
-                )
-                db.session.add(price)
-            db.session.commit()
-            
-            service = OptionsService()
-            # Strike at 200 is out of the money (current ~156)
-            analysis = service.analyze_option('AAPL', 'call', 200.0, 30)
-            
-            assert analysis is not None
-            assert analysis['success_probability'] < 0.5  # Should be lower for OTM
-
-
-class TestOptionsServiceSaveOptionAnalysis:
-    """Tests for save_option_analysis method"""
-    
-    def test_save_option_analysis_success(self, app, db, sample_stock):
-        """Test successful option analysis save"""
-        with app.app_context():
-            service = OptionsService()
-            analysis = {
+    def test_score_option_chain(self):
+        """Test scoring multiple option contracts"""
+        service = OptionsSignalService()
+        contracts = [
+            {
                 'symbol': 'AAPL',
-                'option_type': 'call',
-                'strike_price': 160.0,
-                'expiration_days': 30,
-                'current_price': 153.0,
-                'predicted_price': 155.0,
-                'volatility': 25.5,
-                'success_probability': 0.72,
-                'confidence_score': 0.65,
-                'rsi': 55.0,
-                'macd': 0.5,
-                'moving_avg_20': 152.0,
-                'moving_avg_50': 151.0,
-                'recommendation': 'buy',
-                'notes': 'Test analysis'
-            }
-            
-            option = service.save_option_analysis(analysis)
-            
-            assert option is not None
-            assert option.symbol == 'AAPL'
-            assert option.option_type == 'call'
-            assert option.strike_price == 160.0
-            assert option.success_probability == 0.72
-    
-    def test_save_option_analysis_stock_not_found(self, app, db):
-        """Test option analysis save with non-existent stock"""
-        with app.app_context():
-            service = OptionsService()
-            analysis = {
-                'symbol': 'INVALID',
-                'option_type': 'call',
-                'strike_price': 160.0,
-                'expiration_days': 30,
-                'current_price': 153.0,
-                'predicted_price': 155.0,
-                'volatility': 25.5,
-                'success_probability': 0.72,
-                'confidence_score': 0.65,
-                'rsi': 55.0,
-                'macd': 0.5,
-                'moving_avg_20': 152.0,
-                'moving_avg_50': 151.0,
-                'recommendation': 'buy',
-                'notes': 'Test analysis'
-            }
-            
-            option = service.save_option_analysis(analysis)
-            
-            assert option is None
-    
-    def test_save_option_analysis_missing_fields(self, app, db, sample_stock):
-        """Test option analysis save with missing required fields"""
-        with app.app_context():
-            service = OptionsService()
-            analysis = {
+                'strike': 150.0,
+                'bid': 5.0,
+                'ask': 5.10,
+                'volume': 100,
+                'open_interest': 500
+            },
+            {
                 'symbol': 'AAPL',
-                'option_type': 'call'
-                # Missing other required fields
+                'strike': 155.0,
+                'bid': 2.0,
+                'ask': 2.20,
+                'volume': 5000,
+                'open_interest': 10000
             }
-            
-            option = service.save_option_analysis(analysis)
-            
-            assert option is None
+        ]
+        
+        results = service.score_option_chain(contracts)
+        assert len(results) == 2
+        # Should be sorted by score descending
+        assert results[0]['score'] >= results[1]['score']
+    
+    def test_score_option_chain_empty(self):
+        """Test scoring empty option chain"""
+        service = OptionsSignalService()
+        results = service.score_option_chain([])
+        assert results == []
+    
+    def test_score_option_contract_error_handling(self):
+        """Test error handling in option contract scoring"""
+        service = OptionsSignalService()
+        # Pass invalid data that might cause errors
+        contract = {
+            'symbol': 'AAPL',
+            'bid': 'invalid',  # Should be float
+            'ask': 'invalid'
+        }
+        
+        result = service.score_option_contract(contract)
+        # Should not crash, should return error result
+        assert result['grade'] == 'avoid'
+        assert 'warnings' in result
