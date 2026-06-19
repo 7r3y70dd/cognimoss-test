@@ -329,127 +329,162 @@ class OptionsSignalService:
         """Generate warning flags for data quality and risk factors"""
         warnings = []
         
+        # Check for missing bid/ask
+        if self._has_missing_bid_ask(option_data):
+            warnings.append('missing_bid_ask')
+        
         # Check for wide spread
-        bid = option_data.get('bid')
-        ask = option_data.get('ask')
-        if bid is not None and ask is not None and bid > 0 and ask > 0:
-            spread_percent = (ask - bid) / ((bid + ask) / 2.0)
-            if spread_percent > self.MAX_SPREAD_PERCENT:
-                warnings.append('wide_spread')
+        if self._has_wide_spread(option_data):
+            warnings.append('wide_spread')
         
         # Check for low volume
-        volume = option_data.get('volume')
-        if volume is not None and volume < self.MIN_VOLUME:
+        if self._has_low_volume(option_data):
             warnings.append('low_volume')
         
         # Check for low open interest
-        open_interest = option_data.get('open_interest')
-        if open_interest is not None and open_interest < self.MIN_OPEN_INTEREST:
+        if self._has_low_open_interest(option_data):
             warnings.append('low_open_interest')
         
         # Check for missing implied volatility
-        if option_data.get('implied_volatility') is None:
+        if self._has_missing_iv(option_data):
             warnings.append('missing_iv')
         
-        # Check for missing bid/ask
-        if bid is None or ask is None:
-            warnings.append('missing_bid_ask')
+        # Check for missing expiration
+        if self._has_missing_expiration(option_data):
+            warnings.append('missing_expiration')
         
-        # Check for expiration soon
-        expiration_date = option_data.get('expiration_date')
-        if expiration_date is not None:
-            if isinstance(expiration_date, str):
-                try:
-                    expiration_date = datetime.strptime(expiration_date, '%Y-%m-%d')
-                except (ValueError, TypeError):
-                    pass
-            if isinstance(expiration_date, datetime):
-                days_to_exp = (expiration_date - datetime.utcnow()).days
-                if days_to_exp <= 1:
-                    warnings.append('expiring_soon')
+        # Check for missing underlying price
+        if self._has_missing_underlying_price(option_data):
+            warnings.append('missing_underlying_price')
         
         # Check for expired contract
-        if expiration_date is not None:
-            if isinstance(expiration_date, str):
-                try:
-                    expiration_date = datetime.strptime(expiration_date, '%Y-%m-%d')
-                except (ValueError, TypeError):
-                    pass
-            if isinstance(expiration_date, datetime):
-                if expiration_date < datetime.utcnow():
-                    warnings.append('expired')
+        if self._is_expired(option_data):
+            warnings.append('expired')
+        
+        # Check for expiring soon
+        if self._is_expiring_soon(option_data):
+            warnings.append('expiring_soon')
         
         return warnings
+    
+    def _has_missing_bid_ask(self, option_data: Dict[str, Any]) -> bool:
+        """Check if bid or ask is missing"""
+        bid = option_data.get('bid')
+        ask = option_data.get('ask')
+        return bid is None or ask is None
+    
+    def _has_wide_spread(self, option_data: Dict[str, Any]) -> bool:
+        """Check if bid/ask spread is too wide"""
+        bid = option_data.get('bid')
+        ask = option_data.get('ask')
+        
+        if bid is None or ask is None or bid <= 0 or ask <= 0:
+            return False
+        
+        if bid > ask:
+            bid, ask = ask, bid
+        
+        mid = (bid + ask) / 2.0
+        if mid <= 0:
+            return False
+        
+        spread_percent = (ask - bid) / mid
+        return spread_percent > self.MAX_SPREAD_PERCENT
+    
+    def _has_low_volume(self, option_data: Dict[str, Any]) -> bool:
+        """Check if volume is too low"""
+        volume = option_data.get('volume')
+        if volume is None:
+            return True
+        return volume < self.MIN_VOLUME
+    
+    def _has_low_open_interest(self, option_data: Dict[str, Any]) -> bool:
+        """Check if open interest is too low"""
+        open_interest = option_data.get('open_interest')
+        if open_interest is None:
+            return True
+        return open_interest < self.MIN_OPEN_INTEREST
+    
+    def _has_missing_iv(self, option_data: Dict[str, Any]) -> bool:
+        """Check if implied volatility is missing"""
+        iv = option_data.get('implied_volatility')
+        return iv is None
+    
+    def _has_missing_expiration(self, option_data: Dict[str, Any]) -> bool:
+        """Check if expiration date is missing"""
+        expiration = option_data.get('expiration_date')
+        return expiration is None
+    
+    def _has_missing_underlying_price(self, option_data: Dict[str, Any]) -> bool:
+        """Check if underlying price is missing"""
+        underlying_price = option_data.get('underlying_price')
+        return underlying_price is None
+    
+    def _is_expired(self, option_data: Dict[str, Any]) -> bool:
+        """Check if contract is expired"""
+        expiration_date = option_data.get('expiration_date')
+        if expiration_date is None:
+            return False
+        
+        if isinstance(expiration_date, str):
+            try:
+                expiration_date = datetime.strptime(expiration_date, '%Y-%m-%d')
+            except (ValueError, TypeError):
+                return False
+        
+        now = datetime.utcnow()
+        return expiration_date < now
+    
+    def _is_expiring_soon(self, option_data: Dict[str, Any]) -> bool:
+        """Check if contract is expiring within 1 day"""
+        expiration_date = option_data.get('expiration_date')
+        if expiration_date is None:
+            return False
+        
+        if isinstance(expiration_date, str):
+            try:
+                expiration_date = datetime.strptime(expiration_date, '%Y-%m-%d')
+            except (ValueError, TypeError):
+                return False
+        
+        now = datetime.utcnow()
+        days_to_exp = (expiration_date - now).days
+        return 0 < days_to_exp < 1
     
     def _determine_grade(self, score: float, warnings: List[str]) -> str:
         """Determine grade based on score and warnings
         
-        Grades:
-        - avoid: score < 30 or has critical warnings
-        - watchlist: score 30-60, minimal warnings
-        - interesting: score 60-80, no critical warnings
+        Heuristic grading:
+        - avoid: score < 30 or has critical warnings (expired, missing_underlying_price)
+        - watchlist: score 30-60 or has moderate warnings
+        - interesting: score 60-80
         - high_risk: score > 80 but has warnings
         """
-        critical_warnings = {'expired', 'expiring_soon', 'wide_spread', 'low_open_interest'}
+        critical_warnings = {'expired', 'missing_underlying_price', 'missing_expiration'}
         has_critical = any(w in critical_warnings for w in warnings)
         
-        if score < 30 or (has_critical and score < 50):
+        if has_critical or score < 30:
             return 'avoid'
-        elif score < 60:
-            return 'watchlist'
-        elif score < 80:
-            if has_critical:
-                return 'watchlist'
+        elif score >= 80:
+            return 'high_risk' if warnings else 'interesting'
+        elif score >= 60:
             return 'interesting'
         else:
-            if has_critical:
-                return 'interesting'
-            return 'high_risk'
+            return 'watchlist'
     
-    def _generate_explanation(self, option_data: Dict[str, Any], score: float,
+    def _generate_explanation(self, option_data: Dict[str, Any], score: float, 
                              warnings: List[str], grade: str) -> str:
         """Generate human-readable explanation of the score"""
-        symbol = option_data.get('symbol', 'contract').upper()
+        symbol = option_data.get('symbol', 'UNKNOWN').upper()
+        contract_type = option_data.get('contract_type', 'unknown').lower()
         
-        # Build explanation based on score and warnings
-        if grade == 'avoid':
-            if 'expired' in warnings:
-                return f"{symbol} contract has expired and cannot be traded."
-            elif 'expiring_soon' in warnings:
-                return f"{symbol} contract expires very soon, limiting time for movement."
-            else:
-                return f"{symbol} contract scores poorly ({score:.1f}/100) due to weak liquidity, wide spreads, or incomplete data."
+        explanation = f"Option contract {symbol} {contract_type} scored {score}/100 ({grade}). "
         
-        elif grade == 'watchlist':
-            explanation = f"{symbol} contract has acceptable characteristics ({score:.1f}/100)"
-            if 'wide_spread' in warnings:
-                explanation += " but spread width is notable"
-            if 'low_open_interest' in warnings:
-                explanation += " and open interest is low"
-            explanation += ". Monitor for improvement before trading."
-            return explanation
+        if warnings:
+            warning_text = ', '.join(warnings)
+            explanation += f"Warnings: {warning_text}. "
         
-        elif grade == 'interesting':
-            explanation = f"{symbol} contract shows good signal quality ({score:.1f}/100)"
-            if warnings:
-                explanation += f" despite {', '.join(warnings)}"
-            explanation += ". Consider for further analysis."
-            return explanation
+        explanation += "This is a heuristic score based on liquidity, spread, moneyness, expiration, "
+        explanation += "momentum, and data quality. Not financial advice."
         
-        else:  # high_risk
-            return f"{symbol} contract scores very well ({score:.1f}/100) with strong liquidity and favorable characteristics. Suitable for active trading."
-    
-    def rank_option_contracts(self, option_list: List[Dict[str, Any]],
-                             reverse: bool = True) -> List[OptionSignalScore]:
-        """Score and rank multiple option contracts
-        
-        Args:
-            option_list: List of option contract dictionaries
-            reverse: If True, sort by score descending (highest first)
-        
-        Returns:
-            List of OptionSignalScore objects sorted by score
-        """
-        scores = [self.score_option_contract(opt) for opt in option_list]
-        scores.sort(key=lambda x: x.score, reverse=reverse)
-        return scores
+        return explanation

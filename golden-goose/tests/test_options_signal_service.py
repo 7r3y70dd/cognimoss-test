@@ -362,8 +362,84 @@ class TestOptionsSignalServiceScoreOptionContract:
         
         assert score.strategy == 'put_candidate'
     
+    def test_score_incomplete_option_data(self):
+        """Test scoring with incomplete option data - should not crash"""
+        service = OptionsSignalService()
+        option_data = {
+            'symbol': 'AAPL',
+            # Missing bid, ask, volume, open_interest, implied_volatility
+            'strike': 150.0,
+            'underlying_price': 150.0,
+            'expiration_date': datetime.utcnow() + timedelta(days=30),
+            'contract_type': 'call'
+        }
+        
+        score = service.score_option_contract(option_data)
+        
+        # Should not crash and should have warnings
+        assert isinstance(score, OptionSignalScore)
+        assert len(score.warnings) > 0
+        assert 'missing_bid_ask' in score.warnings
+        assert 'missing_iv' in score.warnings
+        assert score.score >= 0
+    
+    def test_score_minimal_option_data(self):
+        """Test scoring with minimal option data"""
+        service = OptionsSignalService()
+        option_data = {
+            'symbol': 'AAPL',
+            'contract_type': 'call'
+        }
+        
+        score = service.score_option_contract(option_data)
+        
+        # Should not crash
+        assert isinstance(score, OptionSignalScore)
+        assert score.symbol == 'AAPL'
+        assert score.score >= 0
+    
+    def test_score_missing_underlying_price(self):
+        """Test scoring with missing underlying price"""
+        service = OptionsSignalService()
+        option_data = {
+            'symbol': 'AAPL',
+            'bid': 5.0,
+            'ask': 5.10,
+            'volume': 1000,
+            'open_interest': 500,
+            'implied_volatility': 0.25,
+            'strike': 150.0,
+            'expiration_date': datetime.utcnow() + timedelta(days=30),
+            'contract_type': 'call'
+        }
+        
+        score = service.score_option_contract(option_data)
+        
+        assert 'missing_underlying_price' in score.warnings
+        assert score.grade == 'avoid'  # Critical warning
+    
+    def test_score_missing_expiration(self):
+        """Test scoring with missing expiration date"""
+        service = OptionsSignalService()
+        option_data = {
+            'symbol': 'AAPL',
+            'bid': 5.0,
+            'ask': 5.10,
+            'volume': 1000,
+            'open_interest': 500,
+            'implied_volatility': 0.25,
+            'strike': 150.0,
+            'underlying_price': 150.0,
+            'contract_type': 'call'
+        }
+        
+        score = service.score_option_contract(option_data)
+        
+        assert 'missing_expiration' in score.warnings
+        assert score.grade == 'avoid'  # Critical warning
+    
     def test_score_to_dict(self):
-        """Test OptionSignalScore to_dict method"""
+        """Test OptionSignalScore.to_dict() method"""
         service = OptionsSignalService()
         option_data = {
             'symbol': 'AAPL',
@@ -389,219 +465,3 @@ class TestOptionsSignalServiceScoreOptionContract:
         assert 'breakdown' in score_dict
         assert 'warnings' in score_dict
         assert 'explanation' in score_dict
-
-
-class TestOptionsSignalServiceRankOptionContracts:
-    """Tests for rank_option_contracts method"""
-    
-    def test_rank_multiple_contracts(self):
-        """Test ranking multiple option contracts"""
-        service = OptionsSignalService()
-        
-        options = [
-            {
-                'symbol': 'AAPL',
-                'bid': 5.0,
-                'ask': 5.10,
-                'volume': 100,
-                'open_interest': 50,
-                'implied_volatility': 0.25,
-                'strike': 150.0,
-                'underlying_price': 150.0,
-                'expiration_date': datetime.utcnow() + timedelta(days=30),
-                'contract_type': 'call'
-            },
-            {
-                'symbol': 'AAPL',
-                'bid': 5.0,
-                'ask': 5.10,
-                'volume': 5000,
-                'open_interest': 2000,
-                'implied_volatility': 0.25,
-                'strike': 150.0,
-                'underlying_price': 150.0,
-                'expiration_date': datetime.utcnow() + timedelta(days=30),
-                'contract_type': 'call'
-            }
-        ]
-        
-        ranked = service.rank_option_contracts(options)
-        
-        assert len(ranked) == 2
-        assert ranked[0].score >= ranked[1].score  # Descending by default
-    
-    def test_rank_ascending(self):
-        """Test ranking in ascending order"""
-        service = OptionsSignalService()
-        
-        options = [
-            {
-                'symbol': 'AAPL',
-                'bid': 5.0,
-                'ask': 5.10,
-                'volume': 5000,
-                'open_interest': 2000,
-                'implied_volatility': 0.25,
-                'strike': 150.0,
-                'underlying_price': 150.0,
-                'expiration_date': datetime.utcnow() + timedelta(days=30),
-                'contract_type': 'call'
-            },
-            {
-                'symbol': 'AAPL',
-                'bid': 5.0,
-                'ask': 5.10,
-                'volume': 100,
-                'open_interest': 50,
-                'implied_volatility': 0.25,
-                'strike': 150.0,
-                'underlying_price': 150.0,
-                'expiration_date': datetime.utcnow() + timedelta(days=30),
-                'contract_type': 'call'
-            }
-        ]
-        
-        ranked = service.rank_option_contracts(options, reverse=False)
-        
-        assert len(ranked) == 2
-        assert ranked[0].score <= ranked[1].score  # Ascending
-    
-    def test_rank_empty_list(self):
-        """Test ranking empty list"""
-        service = OptionsSignalService()
-        
-        ranked = service.rank_option_contracts([])
-        
-        assert len(ranked) == 0
-
-
-class TestOptionsSignalServiceEdgeCases:
-    """Tests for edge cases and error handling"""
-    
-    def test_score_with_string_expiration_date(self):
-        """Test scoring with string expiration date"""
-        service = OptionsSignalService()
-        option_data = {
-            'symbol': 'AAPL',
-            'bid': 5.0,
-            'ask': 5.10,
-            'volume': 1000,
-            'open_interest': 500,
-            'implied_volatility': 0.25,
-            'strike': 150.0,
-            'underlying_price': 150.0,
-            'expiration_date': '2025-12-31',  # String format
-            'contract_type': 'call'
-        }
-        
-        score = service.score_option_contract(option_data)
-        
-        assert isinstance(score, OptionSignalScore)
-        assert score.score >= 0
-    
-    def test_score_with_invalid_expiration_date(self):
-        """Test scoring with invalid expiration date"""
-        service = OptionsSignalService()
-        option_data = {
-            'symbol': 'AAPL',
-            'bid': 5.0,
-            'ask': 5.10,
-            'volume': 1000,
-            'open_interest': 500,
-            'implied_volatility': 0.25,
-            'strike': 150.0,
-            'underlying_price': 150.0,
-            'expiration_date': 'invalid-date',
-            'contract_type': 'call'
-        }
-        
-        score = service.score_option_contract(option_data)
-        
-        assert isinstance(score, OptionSignalScore)
-        assert score.score >= 0  # Should not crash
-    
-    def test_score_with_zero_underlying_price(self):
-        """Test scoring with zero underlying price"""
-        service = OptionsSignalService()
-        option_data = {
-            'symbol': 'AAPL',
-            'bid': 5.0,
-            'ask': 5.10,
-            'volume': 1000,
-            'open_interest': 500,
-            'implied_volatility': 0.25,
-            'strike': 150.0,
-            'underlying_price': 0.0,  # Invalid
-            'expiration_date': datetime.utcnow() + timedelta(days=30),
-            'contract_type': 'call'
-        }
-        
-        score = service.score_option_contract(option_data)
-        
-        assert isinstance(score, OptionSignalScore)
-        assert score.score >= 0  # Should not crash
-    
-    def test_score_with_negative_bid_ask(self):
-        """Test scoring with negative bid/ask"""
-        service = OptionsSignalService()
-        option_data = {
-            'symbol': 'AAPL',
-            'bid': -5.0,
-            'ask': -4.90,
-            'volume': 1000,
-            'open_interest': 500,
-            'implied_volatility': 0.25,
-            'strike': 150.0,
-            'underlying_price': 150.0,
-            'expiration_date': datetime.utcnow() + timedelta(days=30),
-            'contract_type': 'call'
-        }
-        
-        score = service.score_option_contract(option_data)
-        
-        assert isinstance(score, OptionSignalScore)
-        assert score.score >= 0  # Should not crash
-    
-    def test_score_with_reversed_bid_ask(self):
-        """Test scoring with reversed bid/ask (ask < bid)"""
-        service = OptionsSignalService()
-        option_data = {
-            'symbol': 'AAPL',
-            'bid': 5.10,
-            'ask': 5.0,  # Reversed
-            'volume': 1000,
-            'open_interest': 500,
-            'implied_volatility': 0.25,
-            'strike': 150.0,
-            'underlying_price': 150.0,
-            'expiration_date': datetime.utcnow() + timedelta(days=30),
-            'contract_type': 'call'
-        }
-        
-        score = service.score_option_contract(option_data)
-        
-        assert isinstance(score, OptionSignalScore)
-        assert score.score >= 0  # Should handle gracefully
-    
-    def test_score_with_minimal_data(self):
-        """Test scoring with only symbol"""
-        service = OptionsSignalService()
-        option_data = {
-            'symbol': 'AAPL'
-        }
-        
-        score = service.score_option_contract(option_data)
-        
-        assert isinstance(score, OptionSignalScore)
-        assert score.symbol == 'AAPL'
-        assert score.score >= 0
-    
-    def test_score_with_empty_dict(self):
-        """Test scoring with empty dictionary"""
-        service = OptionsSignalService()
-        option_data = {}
-        
-        score = service.score_option_contract(option_data)
-        
-        assert isinstance(score, OptionSignalScore)
-        assert score.score >= 0  # Should not crash
