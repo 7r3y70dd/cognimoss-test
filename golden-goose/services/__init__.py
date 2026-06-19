@@ -1,6 +1,13 @@
-"""Services package for Golden Goose application"""
+"""Services package for golden-goose."""
 
-from .stock_service import StockService
-from .options_service import OptionsService
+from golden_goose.services.options_service import (
+    OptionsSignalService,
+    OptionSignalScore,
+)
+from golden_goose.services.stock_service import StockService
 
-__all__ = ['StockService', 'OptionsService']
+__all__ = [
+    "OptionsSignalService",
+    "OptionSignalScore",
+    "StockService",
+]
